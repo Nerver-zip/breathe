@@ -1,0 +1,21 @@
+# Build artifacts
+bin/
+dist/
+breath
+breathing-tui
+*.exe
+*.test
+*.out
+coverage.out
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local runtime files
+*.db
+*.db-shm
+*.db-wal
+*.log

@@ -1,0 +1,6 @@
+rounds: 3
+breathing: 3m
+recovery: 30s
+auto_next_round: false
+theme: default
+notifications: true
