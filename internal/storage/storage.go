@@ -275,6 +275,109 @@ func (s *Store) SaveSession(ctx context.Context, rec SessionRecord) error {
 	return tx.Commit()
 }
 
+type DeletedSessionInfo struct {
+	ID              int64         `json:"id"`
+	StartedAt       time.Time     `json:"started_at"`
+	LocalDate       string        `json:"local_date"`
+	CompletedRounds int           `json:"completed_rounds"`
+	ActiveDuration  time.Duration `json:"active_duration"`
+	Status          string        `json:"status"`
+}
+
+func (s *Store) DeleteSessionByOffset(ctx context.Context, offset int) (*DeletedSessionInfo, error) {
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must be non-negative (got %d)", offset)
+	}
+
+	var count int
+	if err := s.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM sessions`); err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, fmt.Errorf("no sessions found in history")
+	}
+	if offset >= count {
+		suffix := "s"
+		if count == 1 {
+			suffix = ""
+		}
+		return nil, fmt.Errorf("session offset ~%d out of range (history has %d session%s)", offset, count, suffix)
+	}
+
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var row struct {
+		ID             int64  `db:"id"`
+		StartedAt      string `db:"started_at"`
+		LocalDate      string `db:"local_date"`
+		Rounds         int    `db:"completed_rounds"`
+		ActiveDuration int64  `db:"active_duration_ms"`
+		Status         string `db:"status"`
+	}
+
+	err = tx.GetContext(ctx, &row, `
+		SELECT id, started_at, local_date, completed_rounds, active_duration_ms, status
+		FROM sessions
+		ORDER BY id DESC
+		LIMIT 1 OFFSET ?`, offset)
+	if err != nil {
+		return nil, fmt.Errorf("find session at offset ~%d: %w", offset, err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM rounds WHERE session_id = ?`, row.ID); err != nil {
+		return nil, fmt.Errorf("delete rounds: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, row.ID); err != nil {
+		return nil, fmt.Errorf("delete session: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	parsedStart, _ := time.Parse(time.RFC3339Nano, row.StartedAt)
+	return &DeletedSessionInfo{
+		ID:              row.ID,
+		StartedAt:       parsedStart,
+		LocalDate:       row.LocalDate,
+		CompletedRounds: row.Rounds,
+		ActiveDuration:  time.Duration(row.ActiveDuration) * time.Millisecond,
+		Status:          row.Status,
+	}, nil
+}
+
+func (s *Store) DeleteAllSessions(ctx context.Context) (int64, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var count int64
+	if err := tx.GetContext(ctx, &count, `SELECT COUNT(*) FROM sessions`); err != nil {
+		return 0, err
+	}
+	if count == 0 {
+		return 0, nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM rounds`); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions`); err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (s *Store) Summary(ctx context.Context) (Summary, error) {
 	report, err := s.GetStats(ctx, time.Now())
 	if err != nil {

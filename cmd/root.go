@@ -29,4 +29,5 @@ func init() {
 	rootCmd.AddCommand(statsCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(themeCmd)
+	rootCmd.AddCommand(NewCleanCommand())
 }

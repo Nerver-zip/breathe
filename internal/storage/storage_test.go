@@ -292,3 +292,75 @@ func TestStreakCalculation(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteSessionByOffsetAndAll(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Initially empty -> error
+	if _, err := store.DeleteSessionByOffset(ctx, 0); err == nil {
+		t.Fatal("expected error deleting from empty store")
+	}
+
+	// Create 3 sessions
+	t1 := time.Date(2026, 9, 13, 10, 0, 0, 0, time.Local)
+	s1, _ := store.CreateSession(ctx, 2, t1)
+	_ = store.SaveRound(ctx, s1, session.RoundResult{Index: 1, Retention: 30 * time.Second})
+	_ = store.EndSession(ctx, s1, t1.Add(5*time.Minute), 5*time.Minute, 5*time.Minute, "completed")
+
+	t2 := time.Date(2026, 9, 13, 12, 0, 0, 0, time.Local)
+	s2, _ := store.CreateSession(ctx, 2, t2)
+	_ = store.SaveRound(ctx, s2, session.RoundResult{Index: 1, Retention: 40 * time.Second})
+	_ = store.EndSession(ctx, s2, t2.Add(5*time.Minute), 5*time.Minute, 5*time.Minute, "completed")
+
+	t3 := time.Date(2026, 9, 13, 14, 0, 0, 0, time.Local)
+	s3, _ := store.CreateSession(ctx, 2, t3)
+	_ = store.SaveRound(ctx, s3, session.RoundResult{Index: 1, Retention: 50 * time.Second})
+	_ = store.EndSession(ctx, s3, t3.Add(5*time.Minute), 5*time.Minute, 5*time.Minute, "completed")
+
+	// Delete offset ~1 (the past session, which is s2: 12:00)
+	del, err := store.DeleteSessionByOffset(ctx, 1)
+	if err != nil {
+		t.Fatalf("DeleteSessionByOffset(1) error: %v", err)
+	}
+	if del.ID != s2 {
+		t.Fatalf("expected deleted session ID to be %d, got %d", s2, del.ID)
+	}
+
+	// Now we have 2 sessions: s3 (offset 0) and s1 (offset 1)
+	// Delete offset ~0 (the latest session, which is s3: 14:00)
+	del, err = store.DeleteSessionByOffset(ctx, 0)
+	if err != nil {
+		t.Fatalf("DeleteSessionByOffset(0) error: %v", err)
+	}
+	if del.ID != s3 {
+		t.Fatalf("expected deleted session ID to be %d, got %d", s3, del.ID)
+	}
+
+	// Only s1 remains
+	report, err := store.GetStats(ctx, t3)
+	if err != nil {
+		t.Fatalf("GetStats error: %v", err)
+	}
+	if report.TotalSessions != 1 {
+		t.Fatalf("expected 1 session remaining, got %d", report.TotalSessions)
+	}
+
+	// DeleteAllSessions
+	count, err := store.DeleteAllSessions(ctx)
+	if err != nil {
+		t.Fatalf("DeleteAllSessions error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 session deleted by DeleteAllSessions, got %d", count)
+	}
+
+	// Verify completely empty
+	report, err = store.GetStats(ctx, t3)
+	if err != nil {
+		t.Fatalf("GetStats error: %v", err)
+	}
+	if report.TotalSessions != 0 || report.TotalRounds != 0 {
+		t.Fatalf("expected empty stats after DeleteAllSessions, got %#v", report)
+	}
+}
