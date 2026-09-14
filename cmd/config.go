@@ -19,8 +19,8 @@ var configShowCmd = &cobra.Command{
 			return err
 		}
 		path, _ := appconfig.Path()
-		cmd.Printf("path: %s\nrounds: %d\nbreathing: %s\nrecovery: %s\nauto_next_round: %t\ntheme: %s\nnotifications: %t\nbell: %t\n",
-			path, cfg.Rounds, cfg.Breathing, cfg.Recovery, cfg.AutoNextRound, cfg.Theme, cfg.Notifications, cfg.Bell)
+		cmd.Printf("path: %s\nrounds: %d\nbreathing: %s\nrecovery: %s\nauto_next_round: %t\ntheme: %s\nnotifications: %t\nbell: %t\nfont: %s\n",
+			path, cfg.Rounds, cfg.Breathing, cfg.Recovery, cfg.AutoNextRound, cfg.Theme, cfg.Notifications, cfg.Bell, cfg.Font)
 		return nil
 	},
 }

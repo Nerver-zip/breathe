@@ -32,6 +32,17 @@ var registry = map[string]Theme{
 		Warn:        lipgloss.Color("#FBBF24"),
 		Error:       lipgloss.Color("#F87171"),
 	},
+	"pomo": {
+		Name:        "pomo",
+		Description: "Pomo-inspired signature indigo palette (#5A56E0)",
+		Primary:     lipgloss.Color("#5A56E0"),
+		Secondary:   lipgloss.Color("#8860FF"),
+		Accent:      lipgloss.Color("#5A56E0"),
+		Muted:       lipgloss.Color("#606060"),
+		Good:        lipgloss.Color("#198754"),
+		Warn:        lipgloss.Color("#F25D94"),
+		Error:       lipgloss.Color("#FF4C4C"),
+	},
 	"catppuccin-mocha": {
 		Name:        "catppuccin-mocha",
 		Description: "Soothing pastel palette with mauve accent",

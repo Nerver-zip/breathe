@@ -8,6 +8,7 @@ import (
 func TestBuiltInThemes(t *testing.T) {
 	required := []string{
 		"default",
+		"pomo",
 		"catppuccin-mocha",
 		"dracula",
 		"gruvbox",

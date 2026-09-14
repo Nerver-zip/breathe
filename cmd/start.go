@@ -27,6 +27,7 @@ var (
 	flagRecovery  time.Duration
 	flagAutoNext  bool
 	flagTheme     string
+	flagFont      string
 )
 
 func init() {
@@ -37,6 +38,7 @@ func init() {
 		c.Flags().DurationVar(&flagRecovery, "recovery", defaults.Recovery, "recovery hold duration")
 		c.Flags().BoolVar(&flagAutoNext, "auto-next", defaults.AutoNextRound, "automatically start the next round after recovery")
 		c.Flags().StringVar(&flagTheme, "theme", "", "theme override")
+		c.Flags().StringVar(&flagFont, "font", "", "font override (ansiShadow, mono12, ansi, rebel)")
 	}
 }
 
@@ -51,6 +53,10 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	recovery := cfg.Recovery
 	autoNext := cfg.AutoNextRound
 	themeName := cfg.Theme
+	font := cfg.Font
+	if font == "" {
+		font = "ansiShadow"
+	}
 
 	if cmd != nil {
 		if cmd.Flags().Changed("rounds") {
@@ -67,6 +73,9 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		}
 		if cmd.Flags().Changed("theme") && flagTheme != "" {
 			themeName = flagTheme
+		}
+		if cmd.Flags().Changed("font") && flagFont != "" {
+			font = flagFont
 		}
 	}
 	if rounds < 1 || breathing <= 0 || recovery <= 0 {
@@ -103,7 +112,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		AutoNextRound: autoNext,
 	})
 
-	model := tui.NewSessionModel(engine, store, sessionID, startedAt, notif, themeName)
+	model := tui.NewSessionModel(engine, store, sessionID, startedAt, notif, themeName, font)
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	finalModel, err := program.Run()
 	if err != nil {

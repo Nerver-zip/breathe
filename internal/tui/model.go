@@ -23,6 +23,7 @@ type Model struct {
 	startedAt            time.Time
 	notifier             notify.Notifier
 	theme                theme.Theme
+	font                 string
 	width                int
 	height               int
 	lastTick             time.Time
@@ -39,12 +40,16 @@ func New(engine *session.Engine, themeName string) Model {
 	return Model{
 		engine:    engine,
 		theme:     themeByName(themeName),
+		font:      DefaultFont,
 		startedAt: time.Now(),
 		notifier:  notify.New(notify.Options{Desktop: false, Bell: false}),
 	}
 }
 
-func NewSessionModel(engine *session.Engine, store *storage.Store, sessionID int64, startedAt time.Time, notif notify.Notifier, themeName string) Model {
+func NewSessionModel(engine *session.Engine, store *storage.Store, sessionID int64, startedAt time.Time, notif notify.Notifier, themeName string, font string) Model {
+	if font == "" {
+		font = DefaultFont
+	}
 	return Model{
 		engine:    engine,
 		store:     store,
@@ -52,6 +57,7 @@ func NewSessionModel(engine *session.Engine, store *storage.Store, sessionID int
 		startedAt: startedAt,
 		notifier:  notif,
 		theme:     themeByName(themeName),
+		font:      font,
 	}
 }
 
@@ -274,7 +280,11 @@ func (m Model) View() string {
 	// Responsive Clock: ASCII Big Clock on >= 60x18, standard clock on compact terminals
 	clockBlock := ""
 	if m.width >= 60 && m.height >= 18 {
-		clockBlock = primary.Bold(true).Render(bigClock(clock))
+		f := m.font
+		if f == "" {
+			f = DefaultFont
+		}
+		clockBlock = primary.Bold(true).Render(RenderClock(clock, f))
 	} else {
 		clockBlock = primary.Bold(true).Render(fmt.Sprintf("  ⏱  %s  ", clock))
 	}

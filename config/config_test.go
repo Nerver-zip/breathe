@@ -76,12 +76,17 @@ func TestSetValidKeys(t *testing.T) {
 		t.Fatalf("Set bell failed: %v", err)
 	}
 
+	cfg, err = Set("font", "mono12")
+	if err != nil || cfg.Font != "mono12" {
+		t.Fatalf("Set font failed: %v", err)
+	}
+
 	// Verify persistence by loading afresh
 	loaded, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.Rounds != 5 || loaded.Theme != "nord" || loaded.Notifications || loaded.Bell {
+	if loaded.Rounds != 5 || loaded.Theme != "nord" || loaded.Notifications || loaded.Bell || loaded.Font != "mono12" {
 		t.Fatalf("re-loaded config mismatch: %#v", loaded)
 	}
 }
@@ -107,5 +112,9 @@ func TestSetInvalidKeysAndValues(t *testing.T) {
 
 	if _, err := Set("bell", "not-a-bool"); err == nil {
 		t.Fatal("expected error for invalid bell boolean")
+	}
+
+	if _, err := Set("font", "non-existent-font"); err == nil {
+		t.Fatal("expected error for invalid font")
 	}
 }

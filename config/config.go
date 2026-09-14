@@ -21,6 +21,7 @@ type Config struct {
 	Theme         string        `mapstructure:"theme" yaml:"theme"`
 	Notifications bool          `mapstructure:"notifications" yaml:"notifications"`
 	Bell          bool          `mapstructure:"bell" yaml:"bell"`
+	Font          string        `mapstructure:"font" yaml:"font"`
 }
 
 func Defaults() Config {
@@ -32,6 +33,7 @@ func Defaults() Config {
 		Theme:         "default",
 		Notifications: true,
 		Bell:          true,
+		Font:          "ansiShadow",
 	}
 }
 
@@ -71,6 +73,7 @@ func Load() (Config, error) {
 	v.SetDefault("theme", cfg.Theme)
 	v.SetDefault("notifications", cfg.Notifications)
 	v.SetDefault("bell", cfg.Bell)
+	v.SetDefault("font", cfg.Font)
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !os.IsNotExist(err) {
@@ -86,6 +89,9 @@ func Load() (Config, error) {
 	cfg.Theme = v.GetString("theme")
 	cfg.Notifications = v.GetBool("notifications")
 	cfg.Bell = v.GetBool("bell")
+	if f := v.GetString("font"); f != "" {
+		cfg.Font = f
+	}
 
 	if d, err := time.ParseDuration(v.GetString("breathing")); err == nil {
 		cfg.Breathing = d
@@ -118,6 +124,7 @@ type yamlConfig struct {
 	Theme         string `yaml:"theme"`
 	Notifications bool   `yaml:"notifications"`
 	Bell          bool   `yaml:"bell"`
+	Font          string `yaml:"font"`
 }
 
 func Save(cfg Config) error {
@@ -137,6 +144,7 @@ func Save(cfg Config) error {
 		Theme:         cfg.Theme,
 		Notifications: cfg.Notifications,
 		Bell:          cfg.Bell,
+		Font:          cfg.Font,
 	}
 
 	data, err := yaml.Marshal(y)
@@ -164,6 +172,7 @@ var SupportedKeys = []string{
 	"theme",
 	"notifications",
 	"bell",
+	"font",
 }
 
 func Set(key, value string) (Config, error) {
@@ -219,6 +228,19 @@ func Set(key, value string) (Config, error) {
 			return cfg, fmt.Errorf("bell must be true or false (got %q)", value)
 		}
 		cfg.Bell = b
+	case "font":
+		switch strings.ToLower(value) {
+		case "ansishadow", "ansi_shadow", "ansi-shadow":
+			cfg.Font = "ansiShadow"
+		case "mono12", "mono_12", "mono-12":
+			cfg.Font = "mono12"
+		case "ansi":
+			cfg.Font = "ansi"
+		case "rebel":
+			cfg.Font = "rebel"
+		default:
+			return cfg, fmt.Errorf("unknown font %q. Available fonts: ansiShadow, mono12, ansi, rebel", value)
+		}
 	default:
 		return cfg, fmt.Errorf("unknown configuration key %q. Supported keys: %s", key, strings.Join(SupportedKeys, ", "))
 	}
