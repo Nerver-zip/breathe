@@ -94,7 +94,7 @@ func TestOversizeTickRecoveryAutoNext(t *testing.T) {
 	e := New(Settings{Rounds: 2, Breathing: 2 * time.Second, Recovery: 2 * time.Second, AutoNextRound: true})
 	e.Tick(2 * time.Second) // finishes breathing round 1
 	e.PopEvents()
-	e.Advance()             // advances to recovery round 1
+	e.Advance() // advances to recovery round 1
 	// 5s tick: 2s finishes recovery round 1, then transitions to round 2 breathing (2s), then 1s retention!
 	e.Tick(5 * time.Second)
 

@@ -2,37 +2,63 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"time"
 
+	appconfig "github.com/Nerver-zip/breathing-tui/config"
 	"github.com/Nerver-zip/breathing-tui/internal/storage"
+	"github.com/Nerver-zip/breathing-tui/internal/tui"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+)
+
+var (
+	flagPlain bool
+	flagJSON  bool
 )
 
 var statsCmd = &cobra.Command{
 	Use:   "stats",
-	Short: "Show breathing statistics",
+	Short: "Show breathing practice statistics",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := appconfig.Load()
+		if err != nil {
+			return err
+		}
+
 		store, err := storage.Open("")
 		if err != nil {
 			return err
 		}
 		defer store.Close()
-		s, err := store.Summary(context.Background())
+
+		report, err := store.GetStats(context.Background(), time.Now())
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Today: %d sessions • %d rounds • best retention %s\n", s.TodaySessions, s.TodayRounds, durationLabel(s.TodayBestRetention))
-		fmt.Printf("All time: %d sessions • %d rounds • active %s\n", s.TotalSessions, s.TotalRounds, durationLabel(s.TotalActive))
-		fmt.Printf("Retention: average %s • best %s\n", durationLabel(s.AverageRetention), durationLabel(s.BestRetention))
-		return nil
+
+		if flagJSON {
+			jsonStr, err := report.JSON()
+			if err != nil {
+				return err
+			}
+			cmd.Println(jsonStr)
+			return nil
+		}
+
+		if flagPlain {
+			cmd.Print(report.PlainText())
+			return nil
+		}
+
+		// Run TUI stats dashboard
+		model := tui.NewStatsModel(store, cfg.Theme)
+		program := tea.NewProgram(model, tea.WithAltScreen())
+		_, err = program.Run()
+		return err
 	},
 }
 
-func durationLabel(d time.Duration) string {
-	if d <= 0 {
-		return "00:00"
-	}
-	total := int(d.Round(time.Second).Seconds())
-	return fmt.Sprintf("%02d:%02d", total/60, total%60)
+func init() {
+	statsCmd.Flags().BoolVar(&flagPlain, "plain", false, "display statistics in plain text format")
+	statsCmd.Flags().BoolVar(&flagJSON, "json", false, "display statistics in JSON format")
 }

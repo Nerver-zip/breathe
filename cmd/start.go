@@ -6,8 +6,10 @@ import (
 	"time"
 
 	appconfig "github.com/Nerver-zip/breathing-tui/config"
+	"github.com/Nerver-zip/breathing-tui/internal/notify"
 	"github.com/Nerver-zip/breathing-tui/internal/session"
 	"github.com/Nerver-zip/breathing-tui/internal/storage"
+	"github.com/Nerver-zip/breathing-tui/internal/theme"
 	"github.com/Nerver-zip/breathing-tui/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -29,11 +31,13 @@ var (
 
 func init() {
 	defaults := appconfig.Defaults()
-	startCmd.Flags().IntVarP(&flagRounds, "rounds", "r", defaults.Rounds, "number of rounds")
-	startCmd.Flags().DurationVar(&flagBreathing, "breathing", defaults.Breathing, "breathing phase duration")
-	startCmd.Flags().DurationVar(&flagRecovery, "recovery", defaults.Recovery, "recovery hold duration")
-	startCmd.Flags().BoolVar(&flagAutoNext, "auto-next", defaults.AutoNextRound, "automatically start the next round after recovery")
-	startCmd.Flags().StringVar(&flagTheme, "theme", "", "theme override")
+	for _, c := range []*cobra.Command{startCmd, rootCmd} {
+		c.Flags().IntVarP(&flagRounds, "rounds", "r", defaults.Rounds, "number of rounds")
+		c.Flags().DurationVar(&flagBreathing, "breathing", defaults.Breathing, "breathing phase duration")
+		c.Flags().DurationVar(&flagRecovery, "recovery", defaults.Recovery, "recovery hold duration")
+		c.Flags().BoolVar(&flagAutoNext, "auto-next", defaults.AutoNextRound, "automatically start the next round after recovery")
+		c.Flags().StringVar(&flagTheme, "theme", "", "theme override")
+	}
 }
 
 func runStart(cmd *cobra.Command, _ []string) error {
@@ -46,7 +50,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	breathing := cfg.Breathing
 	recovery := cfg.Recovery
 	autoNext := cfg.AutoNextRound
-	theme := cfg.Theme
+	themeName := cfg.Theme
 
 	if cmd != nil {
 		if cmd.Flags().Changed("rounds") {
@@ -62,12 +66,35 @@ func runStart(cmd *cobra.Command, _ []string) error {
 			autoNext = flagAutoNext
 		}
 		if cmd.Flags().Changed("theme") && flagTheme != "" {
-			theme = flagTheme
+			themeName = flagTheme
 		}
 	}
 	if rounds < 1 || breathing <= 0 || recovery <= 0 {
 		return fmt.Errorf("rounds and durations must be positive")
 	}
+	if _, err := theme.Get(themeName); err != nil {
+		return err
+	}
+
+	store, err := storage.Open("")
+	if err != nil {
+		return fmt.Errorf("open history: %w", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	_ = store.CleanupUnfinishedSessions(ctx)
+
+	startedAt := time.Now()
+	sessionID, err := store.CreateSession(ctx, rounds, startedAt)
+	if err != nil {
+		return fmt.Errorf("create session: %w", err)
+	}
+
+	notif := notify.New(notify.Options{
+		Desktop: cfg.Notifications,
+		Bell:    cfg.Bell,
+	})
 
 	engine := session.New(session.Settings{
 		Rounds:        rounds,
@@ -75,37 +102,30 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		Recovery:      recovery,
 		AutoNextRound: autoNext,
 	})
-	model := tui.New(engine, theme)
-	startedAt := time.Now()
+
+	model := tui.NewSessionModel(engine, store, sessionID, startedAt, notif, themeName)
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	finalModel, err := program.Run()
-	endedAt := time.Now()
 	if err != nil {
 		return err
 	}
 
 	fm, ok := finalModel.(tui.Model)
 	if !ok {
-		return fmt.Errorf("unexpected final TUI model")
+		return nil
 	}
+
 	status := "abandoned"
 	if fm.Engine().Done() {
 		status = "completed"
 	}
-	store, err := storage.Open("")
-	if err != nil {
-		return fmt.Errorf("open history: %w", err)
+	_ = store.EndSession(ctx, sessionID, time.Now(), fm.Engine().SessionElapsed(), time.Since(startedAt), status)
+
+	if fm.ShouldOpenStats() {
+		statsModel := tui.NewStatsModel(store, themeName)
+		statsProg := tea.NewProgram(statsModel, tea.WithAltScreen())
+		_, _ = statsProg.Run()
 	}
-	defer store.Close()
-	if err := store.SaveSession(context.Background(), storage.SessionRecord{
-		StartedAt:      startedAt,
-		EndedAt:        endedAt,
-		PlannedRounds:  rounds,
-		ActiveDuration: fm.Engine().SessionElapsed(),
-		Status:         status,
-		Rounds:         fm.Engine().Results(),
-	}); err != nil {
-		return fmt.Errorf("save history: %w", err)
-	}
+
 	return nil
 }

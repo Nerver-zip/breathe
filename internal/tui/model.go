@@ -1,11 +1,15 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/Nerver-zip/breathing-tui/internal/notify"
 	"github.com/Nerver-zip/breathing-tui/internal/session"
+	"github.com/Nerver-zip/breathing-tui/internal/storage"
+	"github.com/Nerver-zip/breathing-tui/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -13,46 +17,200 @@ import (
 type tickMsg time.Time
 
 type Model struct {
-	engine   *session.Engine
-	theme    Theme
-	width    int
-	height   int
-	lastTick time.Time
-	quitting bool
+	engine               *session.Engine
+	store                *storage.Store
+	sessionID            int64
+	startedAt            time.Time
+	notifier             notify.Notifier
+	theme                theme.Theme
+	width                int
+	height               int
+	lastTick             time.Time
+	quitting             bool
+	abandoned            bool
+	openStats            bool
+	showHelp             bool
+	confirmQuit          bool
+	confirmReset         bool
+	wasPausedBeforeModal bool
 }
 
 func New(engine *session.Engine, themeName string) Model {
-	return Model{engine: engine, theme: themeByName(themeName)}
+	return Model{
+		engine:    engine,
+		theme:     themeByName(themeName),
+		startedAt: time.Now(),
+		notifier:  notify.New(notify.Options{Desktop: false, Bell: false}),
+	}
+}
+
+func NewSessionModel(engine *session.Engine, store *storage.Store, sessionID int64, startedAt time.Time, notif notify.Notifier, themeName string) Model {
+	return Model{
+		engine:    engine,
+		store:     store,
+		sessionID: sessionID,
+		startedAt: startedAt,
+		notifier:  notif,
+		theme:     themeByName(themeName),
+	}
 }
 
 func tick() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m Model) Init() tea.Cmd { return tick() }
+func (m Model) Init() tea.Cmd {
+	return tick()
+}
+
+func (m *Model) processEvents() {
+	events := m.engine.PopEvents()
+	for _, ev := range events {
+		if ev.Type == session.EventRecoveryComplete {
+			// Save completed round to storage immediately
+			results := m.engine.Results()
+			if len(results) > 0 && m.store != nil && m.sessionID > 0 {
+				lastRes := results[len(results)-1]
+				_ = m.store.SaveRound(context.Background(), m.sessionID, lastRes)
+			}
+		}
+
+		if ev.Auto {
+			switch ev.Type {
+			case session.EventBreathingComplete:
+				if m.notifier != nil {
+					m.notifier.Notify("Breathing Complete", "Begin retention hold")
+				}
+			case session.EventRecoveryComplete:
+				if m.notifier != nil && !m.engine.Done() {
+					m.notifier.Notify("Recovery Complete", fmt.Sprintf("Round %d ready", ev.Round+1))
+				}
+			case session.EventSessionComplete:
+				if m.notifier != nil {
+					m.notifier.Notify("Session Complete", "All breathing rounds finished")
+				}
+			}
+		}
+
+		if m.engine.Done() && m.store != nil && m.sessionID > 0 {
+			_ = m.store.EndSession(context.Background(), m.sessionID, time.Now(), m.engine.SessionElapsed(), time.Since(m.startedAt), "completed")
+		}
+	}
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		return m, nil
+
 	case tickMsg:
 		now := time.Time(msg)
 		if m.lastTick.IsZero() {
 			m.lastTick = now
 		} else {
-			m.engine.Tick(now.Sub(m.lastTick))
+			delta := now.Sub(m.lastTick)
 			m.lastTick = now
+			m.engine.Tick(delta)
+			m.processEvents()
 		}
 		return m, tick()
+
 	case tea.KeyMsg:
-		switch msg.String() {
+		key := msg.String()
+
+		// Overlay: Quit Confirmation
+		if m.confirmQuit {
+			switch key {
+			case "y", "Y":
+				m.abandoned = true
+				m.quitting = true
+				if m.store != nil && m.sessionID > 0 {
+					_ = m.store.EndSession(context.Background(), m.sessionID, time.Now(), m.engine.SessionElapsed(), time.Since(m.startedAt), "abandoned")
+				}
+				return m, tea.Quit
+			case "n", "N", "esc", "q":
+				m.confirmQuit = false
+				m.engine.SetPaused(m.wasPausedBeforeModal)
+				return m, nil
+			default:
+				return m, nil
+			}
+		}
+
+		// Overlay: Reset Confirmation
+		if m.confirmReset {
+			switch key {
+			case "y", "Y":
+				m.engine.ResetCurrentPhase()
+				m.confirmReset = false
+				m.engine.SetPaused(m.wasPausedBeforeModal)
+				return m, nil
+			case "n", "N", "esc", "r":
+				m.confirmReset = false
+				m.engine.SetPaused(m.wasPausedBeforeModal)
+				return m, nil
+			default:
+				return m, nil
+			}
+		}
+
+		// Overlay: Help
+		if m.showHelp {
+			if key == "?" || key == "esc" || key == "q" {
+				m.showHelp = false
+				m.engine.SetPaused(m.wasPausedBeforeModal)
+			}
+			return m, nil
+		}
+
+		// Session Done Keys
+		if m.engine.Done() {
+			switch key {
+			case "q", "enter", "esc", "ctrl+c":
+				m.quitting = true
+				return m, tea.Quit
+			case "s":
+				m.openStats = true
+				m.quitting = true
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		// Active Session Keys
+		switch key {
 		case "ctrl+c", "q":
-			m.quitting = true
-			return m, tea.Quit
+			m.wasPausedBeforeModal = m.engine.Paused()
+			m.engine.SetPaused(true)
+			m.confirmQuit = true
+			return m, nil
+
 		case " ", "p":
 			m.engine.TogglePause()
+			return m, nil
+
 		case "enter", "n":
 			m.engine.Advance()
+			m.processEvents()
+			return m, nil
+
+		case "r":
+			// If in retention with active count-up, ask for confirmation
+			if m.engine.Phase() == session.PhaseRetention && m.engine.PhaseElapsed() > 0 {
+				m.wasPausedBeforeModal = m.engine.Paused()
+				m.engine.SetPaused(true)
+				m.confirmReset = true
+			} else {
+				m.engine.ResetCurrentPhase()
+			}
+			return m, nil
+
+		case "?":
+			m.wasPausedBeforeModal = m.engine.Paused()
+			m.engine.SetPaused(true)
+			m.showHelp = true
+			return m, nil
 		}
 	}
 	return m, nil
@@ -63,57 +221,164 @@ func (m Model) View() string {
 		return ""
 	}
 
+	// Overlays take precedence
+	if m.confirmQuit {
+		modal := RenderConfirmModal(
+			"ABANDON SESSION?",
+			"Leave active session?\nCompleted rounds will be preserved.",
+			"Abandon session?",
+			m.theme,
+		)
+		if m.width > 0 && m.height > 0 {
+			return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+		}
+		return modal
+	}
+
+	if m.confirmReset {
+		modal := RenderConfirmModal(
+			"RESET RETENTION?",
+			fmt.Sprintf("Restart phase and discard %s retention time?", formatClock(m.engine.PhaseElapsed())),
+			"Discard retention?",
+			m.theme,
+		)
+		if m.width > 0 && m.height > 0 {
+			return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+		}
+		return modal
+	}
+
+	if m.showHelp {
+		modal := RenderHelpModal(m.theme, m.width, m.height)
+		if m.width > 0 && m.height > 0 {
+			return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+		}
+		return modal
+	}
+
 	titleStyle := lipgloss.NewStyle().Foreground(m.theme.Accent).Bold(true)
 	primary := lipgloss.NewStyle().Foreground(m.theme.Primary)
+	secondary := lipgloss.NewStyle().Foreground(m.theme.Secondary)
 	muted := lipgloss.NewStyle().Foreground(m.theme.Muted)
 	good := lipgloss.NewStyle().Foreground(m.theme.Good)
 	warn := lipgloss.NewStyle().Foreground(m.theme.Warn)
 
+	// Completion Summary View
+	if m.engine.Done() {
+		return m.viewSummary()
+	}
+
 	phaseTitle, instruction := phaseCopy(m.engine.Phase())
 	clock := formatClock(m.engine.PhaseClock())
-	clockBlock := primary.Bold(true).Render(bigClock(clock))
+
+	// Responsive Clock: ASCII Big Clock on >= 60x18, standard clock on compact terminals
+	clockBlock := ""
+	if m.width >= 60 && m.height >= 18 {
+		clockBlock = primary.Bold(true).Render(bigClock(clock))
+	} else {
+		clockBlock = primary.Bold(true).Render(fmt.Sprintf("  ⏱  %s  ", clock))
+	}
 
 	status := "RUNNING"
 	statusStyle := good
 	if m.engine.Paused() {
 		status = "PAUSED"
 		statusStyle = warn
-	}
-	if m.engine.Phase() == session.PhaseRoundReady {
+	} else if m.engine.Phase() == session.PhaseRoundReady {
 		status = "ROUND COMPLETE"
 		statusStyle = warn
-	}
-	if m.engine.Done() {
-		status = "SESSION COMPLETE"
-		statusStyle = good
 	}
 
 	progress := ""
 	if m.engine.Phase() == session.PhaseBreathing || m.engine.Phase() == session.PhaseRecovery {
-		progress = renderProgress(m.engine.Progress(), 42)
+		progress = renderProgress(m.engine.Progress(), 38)
 	} else if m.engine.Phase() == session.PhaseRetention {
-		progress = muted.Render("retention is open-ended — advance when you need to breathe")
+		progress = muted.Render("retention is open-ended — press [enter] when you need to breathe")
+	} else if m.engine.Phase() == session.PhaseRoundReady {
+		progress = good.Render("press [enter] to begin next round")
 	}
+
+	roundHeader := muted.Render(fmt.Sprintf("Round %d/%d   •   Active Session %s",
+		m.engine.Round(), m.engine.TotalRounds(), formatClock(m.engine.SessionElapsed())))
+
+	hotkeys := muted.Render("[space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit")
 
 	body := lipgloss.JoinVertical(
 		lipgloss.Center,
 		titleStyle.Render("BREATHING TUI"),
-		muted.Render(fmt.Sprintf("Round %d/%d  •  Session %s", m.engine.Round(), m.engine.TotalRounds(), formatClock(m.engine.SessionElapsed()))),
+		roundHeader,
 		"",
-		statusStyle.Bold(true).Render(status),
+		statusStyle.Bold(true).Render("● "+status),
 		primary.Bold(true).Render(phaseTitle),
-		muted.Render(instruction),
+		secondary.Render(instruction),
 		"",
 		clockBlock,
 		"",
 		progress,
 		"",
-		muted.Render("[space/p] pause  [enter/n] next  [q] quit"),
+		hotkeys,
 	)
 
-	if m.engine.Done() {
-		body = lipgloss.JoinVertical(lipgloss.Center, body, "", primary.Render(summaryText(m.engine.Results())))
+	if m.width <= 0 || m.height <= 0 {
+		return body
 	}
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, body)
+}
+
+func (m Model) viewSummary() string {
+	titleStyle := lipgloss.NewStyle().Foreground(m.theme.Accent).Bold(true)
+	primary := lipgloss.NewStyle().Foreground(m.theme.Primary)
+	secondary := lipgloss.NewStyle().Foreground(m.theme.Secondary)
+	good := lipgloss.NewStyle().Foreground(m.theme.Good).Bold(true)
+	muted := lipgloss.NewStyle().Foreground(m.theme.Muted)
+
+	results := m.engine.Results()
+	var totalRetention time.Duration
+	var bestRetention time.Duration
+
+	var table strings.Builder
+	for i, r := range results {
+		totalRetention += r.Retention
+		if r.Retention > bestRetention {
+			bestRetention = r.Retention
+		}
+		deltaStr := ""
+		if i > 0 {
+			diff := r.Retention - results[i-1].Retention
+			if diff > 0 {
+				deltaStr = good.Render(fmt.Sprintf(" (+%s)", formatClock(diff)))
+			} else if diff < 0 {
+				deltaStr = muted.Render(fmt.Sprintf(" (-%s)", formatClock(-diff)))
+			} else {
+				deltaStr = muted.Render(" (=)")
+			}
+		}
+		fmt.Fprintf(&table, "  Round %d:   %s%s\n", r.Index, primary.Bold(true).Render(formatClock(r.Retention)), deltaStr)
+	}
+
+	var avgRetention time.Duration
+	if len(results) > 0 {
+		avgRetention = totalRetention / time.Duration(len(results))
+	}
+
+	summaryBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.theme.Good).
+		Padding(1, 3).
+		Render(lipgloss.JoinVertical(
+			lipgloss.Center,
+			good.Render("✔ SESSION COMPLETE"),
+			"",
+			secondary.Render(fmt.Sprintf("Completed %d of %d planned rounds", len(results), m.engine.TotalRounds())),
+			secondary.Render(fmt.Sprintf("Total Active Time: %s", formatClock(m.engine.SessionElapsed()))),
+			"",
+			table.String(),
+			muted.Render(fmt.Sprintf("Average Retention: %s   •   Best: %s", formatClock(avgRetention), formatClock(bestRetention))),
+			"",
+			muted.Render("[enter / q] exit   •   [s] view full statistics"),
+		))
+
+	body := lipgloss.JoinVertical(lipgloss.Center, titleStyle.Render("BREATHING TUI"), "", summaryBox)
 
 	if m.width <= 0 || m.height <= 0 {
 		return body
@@ -132,7 +397,7 @@ func phaseCopy(p session.Phase) (string, string) {
 	case session.PhaseRoundReady:
 		return "READY FOR NEXT ROUND", "press Enter to begin the next round"
 	case session.PhaseComplete:
-		return "DONE", "session saved when you leave"
+		return "DONE", "session saved to history"
 	default:
 		return string(p), ""
 	}
@@ -159,19 +424,6 @@ func formatClock(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d", minutes, seconds)
 }
 
-func summaryText(results []session.RoundResult) string {
-	if len(results) == 0 {
-		return "No completed rounds."
-	}
-	var b strings.Builder
-	b.WriteString("Retention: ")
-	for i, r := range results {
-		if i > 0 {
-			b.WriteString("  •  ")
-		}
-		fmt.Fprintf(&b, "R%d %s", r.Index, formatClock(r.Retention))
-	}
-	return b.String()
-}
-
 func (m Model) Engine() *session.Engine { return m.engine }
+func (m Model) ShouldOpenStats() bool   { return m.openStats }
+func (m Model) IsAbandoned() bool       { return m.abandoned }

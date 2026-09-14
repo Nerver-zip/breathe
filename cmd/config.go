@@ -1,15 +1,13 @@
 package cmd
 
 import (
-	"fmt"
-
 	appconfig "github.com/Nerver-zip/breathing-tui/config"
 	"github.com/spf13/cobra"
 )
 
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Inspect configuration",
+	Short: "Inspect and modify configuration",
 }
 
 var configShowCmd = &cobra.Command{
@@ -21,8 +19,8 @@ var configShowCmd = &cobra.Command{
 			return err
 		}
 		path, _ := appconfig.Path()
-		fmt.Printf("path: %s\nrounds: %d\nbreathing: %s\nrecovery: %s\nauto_next_round: %t\ntheme: %s\nnotifications: %t\n",
-			path, cfg.Rounds, cfg.Breathing, cfg.Recovery, cfg.AutoNextRound, cfg.Theme, cfg.Notifications)
+		cmd.Printf("path: %s\nrounds: %d\nbreathing: %s\nrecovery: %s\nauto_next_round: %t\ntheme: %s\nnotifications: %t\nbell: %t\n",
+			path, cfg.Rounds, cfg.Breathing, cfg.Recovery, cfg.AutoNextRound, cfg.Theme, cfg.Notifications, cfg.Bell)
 		return nil
 	},
 }
@@ -35,11 +33,30 @@ var configPathCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Println(path)
+		cmd.Println(path)
+		return nil
+	},
+}
+
+var configSetCmd = &cobra.Command{
+	Use:   "set <key> <value>",
+	Short: "Set a configuration value",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		key := args[0]
+		val := args[1]
+		cfg, err := appconfig.Set(key, val)
+		if err != nil {
+			return err
+		}
+		cmd.Printf("Updated %s to %s\n", key, val)
+		path, _ := appconfig.Path()
+		cmd.Printf("Config saved to %s (effective theme: %s, rounds: %d, breathing: %s, recovery: %s)\n",
+			path, cfg.Theme, cfg.Rounds, cfg.Breathing, cfg.Recovery)
 		return nil
 	},
 }
 
 func init() {
-	configCmd.AddCommand(configShowCmd, configPathCmd)
+	configCmd.AddCommand(configShowCmd, configPathCmd, configSetCmd)
 }

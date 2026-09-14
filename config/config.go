@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/Nerver-zip/breathing-tui/internal/theme"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -16,6 +20,7 @@ type Config struct {
 	AutoNextRound bool          `mapstructure:"auto_next_round" yaml:"auto_next_round"`
 	Theme         string        `mapstructure:"theme" yaml:"theme"`
 	Notifications bool          `mapstructure:"notifications" yaml:"notifications"`
+	Bell          bool          `mapstructure:"bell" yaml:"bell"`
 }
 
 func Defaults() Config {
@@ -26,10 +31,14 @@ func Defaults() Config {
 		AutoNextRound: false,
 		Theme:         "default",
 		Notifications: true,
+		Bell:          true,
 	}
 }
 
 func Dir() (string, error) {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "breath"), nil
+	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -61,12 +70,13 @@ func Load() (Config, error) {
 	v.SetDefault("auto_next_round", cfg.AutoNextRound)
 	v.SetDefault("theme", cfg.Theme)
 	v.SetDefault("notifications", cfg.Notifications)
+	v.SetDefault("bell", cfg.Bell)
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !os.IsNotExist(err) {
 			return cfg, err
 		}
-		if err := writeDefaults(v, path); err != nil {
+		if err := Save(cfg); err != nil {
 			return cfg, err
 		}
 	}
@@ -75,6 +85,7 @@ func Load() (Config, error) {
 	cfg.AutoNextRound = v.GetBool("auto_next_round")
 	cfg.Theme = v.GetString("theme")
 	cfg.Notifications = v.GetBool("notifications")
+	cfg.Bell = v.GetBool("bell")
 
 	if d, err := time.ParseDuration(v.GetString("breathing")); err == nil {
 		cfg.Breathing = d
@@ -93,12 +104,127 @@ func Load() (Config, error) {
 	if cfg.Breathing <= 0 || cfg.Recovery <= 0 {
 		return cfg, fmt.Errorf("durations must be > 0")
 	}
+	if _, err := theme.Get(cfg.Theme); err != nil {
+		cfg.Theme = "default"
+	}
 	return cfg, nil
 }
 
-func writeDefaults(v *viper.Viper, path string) error {
+type yamlConfig struct {
+	Rounds        int    `yaml:"rounds"`
+	Breathing     string `yaml:"breathing"`
+	Recovery      string `yaml:"recovery"`
+	AutoNextRound bool   `yaml:"auto_next_round"`
+	Theme         string `yaml:"theme"`
+	Notifications bool   `yaml:"notifications"`
+	Bell          bool   `yaml:"bell"`
+}
+
+func Save(cfg Config) error {
+	path, err := Path()
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return v.WriteConfigAs(path)
+
+	y := yamlConfig{
+		Rounds:        cfg.Rounds,
+		Breathing:     cfg.Breathing.String(),
+		Recovery:      cfg.Recovery.String(),
+		AutoNextRound: cfg.AutoNextRound,
+		Theme:         cfg.Theme,
+		Notifications: cfg.Notifications,
+		Bell:          cfg.Bell,
+	}
+
+	data, err := yaml.Marshal(y)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+
+	// Atomic file write using a temporary file in the same directory
+	tmpPath := fmt.Sprintf("%s.tmp.%d", path, time.Now().UnixNano())
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return fmt.Errorf("write temp config: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("save config: %w", err)
+	}
+	return nil
+}
+
+var SupportedKeys = []string{
+	"rounds",
+	"breathing",
+	"recovery",
+	"auto_next_round",
+	"theme",
+	"notifications",
+	"bell",
+}
+
+func Set(key, value string) (Config, error) {
+	cfg, err := Load()
+	if err != nil {
+		return cfg, err
+	}
+
+	key = strings.ToLower(strings.TrimSpace(key))
+	key = strings.ReplaceAll(key, "-", "_")
+	value = strings.TrimSpace(value)
+
+	switch key {
+	case "rounds":
+		val, err := strconv.Atoi(value)
+		if err != nil || val < 1 {
+			return cfg, fmt.Errorf("rounds must be an integer >= 1 (got %q)", value)
+		}
+		cfg.Rounds = val
+	case "breathing":
+		d, err := time.ParseDuration(value)
+		if err != nil || d <= 0 {
+			return cfg, fmt.Errorf("breathing must be a positive duration like '3m' or '2m30s' (got %q)", value)
+		}
+		cfg.Breathing = d
+	case "recovery":
+		d, err := time.ParseDuration(value)
+		if err != nil || d <= 0 {
+			return cfg, fmt.Errorf("recovery must be a positive duration like '30s' or '1m' (got %q)", value)
+		}
+		cfg.Recovery = d
+	case "auto_next_round":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return cfg, fmt.Errorf("auto_next_round must be true or false (got %q)", value)
+		}
+		cfg.AutoNextRound = b
+	case "theme":
+		th, err := theme.Get(value)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.Theme = th.Name
+	case "notifications":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return cfg, fmt.Errorf("notifications must be true or false (got %q)", value)
+		}
+		cfg.Notifications = b
+	case "bell":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return cfg, fmt.Errorf("bell must be true or false (got %q)", value)
+		}
+		cfg.Bell = b
+	default:
+		return cfg, fmt.Errorf("unknown configuration key %q. Supported keys: %s", key, strings.Join(SupportedKeys, ", "))
+	}
+
+	if err := Save(cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
 }
