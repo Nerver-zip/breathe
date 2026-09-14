@@ -24,6 +24,8 @@ type Config struct {
 	Font          string        `mapstructure:"font" yaml:"font"`
 	Mode          string        `mapstructure:"mode" yaml:"mode"`
 	Breaths       int           `mapstructure:"breaths" yaml:"breaths"`
+	Quotes        []string      `mapstructure:"quotes" yaml:"quotes,omitempty"`
+	QuoteInterval time.Duration `mapstructure:"quote_interval" yaml:"quote_interval,omitempty"`
 }
 
 func Defaults() Config {
@@ -38,6 +40,8 @@ func Defaults() Config {
 		Font:          "ansiShadow",
 		Mode:          "timed",
 		Breaths:       30,
+		Quotes:        nil,
+		QuoteInterval: 30 * time.Second,
 	}
 }
 
@@ -129,20 +133,53 @@ func Load() (Config, error) {
 	if _, err := theme.Get(cfg.Theme); err != nil {
 		cfg.Theme = "default"
 	}
+
+	// Quotes / phrases
+	if v.IsSet("quotes") {
+		cfg.Quotes = v.GetStringSlice("quotes")
+	} else if v.IsSet("phrases") {
+		cfg.Quotes = v.GetStringSlice("phrases")
+	}
+	var cleanQuotes []string
+	for _, q := range cfg.Quotes {
+		q = strings.TrimSpace(q)
+		if q != "" {
+			cleanQuotes = append(cleanQuotes, q)
+		}
+	}
+	cfg.Quotes = cleanQuotes
+
+	// Quote interval
+	intervalStr := v.GetString("quote_interval")
+	if intervalStr == "" {
+		intervalStr = v.GetString("phrase_interval")
+	}
+	if intervalStr != "" {
+		if d, err := time.ParseDuration(intervalStr); err == nil && d > 0 {
+			cfg.QuoteInterval = d
+		} else {
+			cfg.QuoteInterval = 30 * time.Second
+		}
+	} else {
+		cfg.QuoteInterval = 30 * time.Second
+	}
+
 	return cfg, nil
 }
 
 type yamlConfig struct {
-	Rounds        int    `yaml:"rounds"`
-	Breathing     string `yaml:"breathing"`
-	Recovery      string `yaml:"recovery"`
-	AutoNextRound bool   `yaml:"auto_next_round"`
-	Theme         string `yaml:"theme"`
-	Notifications bool   `yaml:"notifications"`
-	Bell          bool   `yaml:"bell"`
-	Font          string `yaml:"font"`
-	Mode          string `yaml:"mode"`
-	Breaths       int    `yaml:"breaths"`
+	Rounds        int      `yaml:"rounds"`
+	Breathing     string   `yaml:"breathing"`
+	Recovery      string   `yaml:"recovery"`
+	AutoNextRound bool     `yaml:"auto_next_round"`
+	Theme         string   `yaml:"theme"`
+	Notifications bool     `yaml:"notifications"`
+	Bell          bool     `yaml:"bell"`
+	Font          string   `yaml:"font"`
+	Mode          string   `yaml:"mode"`
+	Breaths       int      `yaml:"breaths"`
+	Quotes        []string `yaml:"quotes,omitempty"`
+	QuoteInterval string   `yaml:"quote_interval,omitempty"`
 }
 
 func Save(cfg Config) error {
@@ -152,6 +189,11 @@ func Save(cfg Config) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
+	}
+
+	quoteIntervalStr := cfg.QuoteInterval.String()
+	if quoteIntervalStr == "" || cfg.QuoteInterval <= 0 {
+		quoteIntervalStr = "30s"
 	}
 
 	y := yamlConfig{
@@ -165,6 +207,8 @@ func Save(cfg Config) error {
 		Font:          cfg.Font,
 		Mode:          cfg.Mode,
 		Breaths:       cfg.Breaths,
+		Quotes:        cfg.Quotes,
+		QuoteInterval: quoteIntervalStr,
 	}
 
 	data, err := yaml.Marshal(y)
@@ -195,6 +239,8 @@ var SupportedKeys = []string{
 	"font",
 	"mode",
 	"breaths",
+	"quote_interval",
+	"quotes",
 }
 
 func Set(key, value string) (Config, error) {
@@ -278,6 +324,29 @@ func Set(key, value string) (Config, error) {
 			return cfg, fmt.Errorf("breaths must be an integer >= 1 (got %q)", value)
 		}
 		cfg.Breaths = val
+	case "quote_interval", "phrase_interval":
+		d, err := time.ParseDuration(value)
+		if err != nil || d <= 0 {
+			return cfg, fmt.Errorf("quote_interval must be a positive duration like '30s' or '1m' (got %q)", value)
+		}
+		cfg.QuoteInterval = d
+	case "quotes", "phrases":
+		if value == "" || value == "[]" || value == "none" || value == "nil" {
+			cfg.Quotes = nil
+		} else {
+			parts := strings.Split(value, ";")
+			if len(parts) == 1 && strings.Contains(value, ",") {
+				parts = strings.Split(value, ",")
+			}
+			var list []string
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					list = append(list, p)
+				}
+			}
+			cfg.Quotes = list
+		}
 	default:
 		return cfg, fmt.Errorf("unknown configuration key %q. Supported keys: %s", key, strings.Join(SupportedKeys, ", "))
 	}

@@ -391,3 +391,85 @@ func TestKeyAIncrementsBreathsInCountedMode(t *testing.T) {
 		t.Fatalf("expected auto-transition to PhaseRetention upon reaching target, got %s", engine.Phase())
 	}
 }
+
+func TestQuotesTypewriterAndAlternation(t *testing.T) {
+	engine := session.New(session.Settings{
+		Rounds:    2,
+		Breathing: 2 * time.Minute,
+		Recovery:  10 * time.Second,
+	})
+	m := New(engine, "pomo")
+	m.width = 80
+	m.height = 24
+
+	// Case 1: No quotes configured -> Nothing displayed
+	if m.renderQuote() != "" {
+		t.Fatalf("expected empty quote render when no quotes configured, got %q", m.renderQuote())
+	}
+	view := m.View()
+	if strings.Contains(view, "▍") {
+		t.Fatalf("expected no typewriter cursor when no quotes configured")
+	}
+
+	// Case 2: Configured with 2 quotes and 30s interval
+	quotes := []string{
+		"Breathe peacefully.",
+		"Stay centered.",
+	}
+	m.SetQuotes(quotes, 30*time.Second)
+
+	// Before any tick, quoteElapsed is 0 -> 0 characters typed, but cursor is visible
+	rendered := m.renderQuote()
+	if !strings.Contains(rendered, "▍") {
+		t.Fatalf("expected cursor on initial typing state, got %q", rendered)
+	}
+
+	// Tick 5 * 45ms = 225ms -> exactly 5 characters of "Breathe peacefully." -> "Breat"
+	start := time.Now()
+	m.lastTick = start
+	updated, _ := m.Update(tickMsg(start.Add(225 * time.Millisecond)))
+	m = updated.(Model)
+
+	rendered = m.renderQuote()
+	if !strings.Contains(rendered, "Breat") {
+		t.Fatalf("expected 'Breat' after 225ms, got %q", rendered)
+	}
+
+	// Tick to 2 seconds (fully typed "Breathe peacefully.")
+	updated, _ = m.Update(tickMsg(start.Add(2 * time.Second)))
+	m = updated.(Model)
+	rendered = m.renderQuote()
+	if !strings.Contains(rendered, "Breathe peacefully.") {
+		t.Fatalf("expected full phrase 'Breathe peacefully.', got %q", rendered)
+	}
+	if strings.Contains(rendered, "▍") {
+		t.Fatalf("expected cursor to disappear once typing completes, got %q", rendered)
+	}
+
+	// Pause test: while paused, quoteElapsed does not advance
+	m.engine.SetPaused(true)
+	prePauseElapsed := m.quoteElapsed
+	updated, _ = m.Update(tickMsg(start.Add(10 * time.Second)))
+	m = updated.(Model)
+	if m.quoteElapsed != prePauseElapsed {
+		t.Fatalf("expected quoteElapsed to stay frozen while paused, got %v vs %v", m.quoteElapsed, prePauseElapsed)
+	}
+	m.engine.SetPaused(false)
+
+	// Alternate after 30 seconds of active time -> switches to quote 2: "Stay centered."
+	// We were paused from 2s to 10s (8s paused).
+	// Ticking to 40s gives 30s of additional active time (total 32s active >= 30s).
+	updated, _ = m.Update(tickMsg(start.Add(40 * time.Second)))
+	m = updated.(Model)
+	if m.quoteIndex != 1 {
+		t.Fatalf("expected quoteIndex to switch to 1 after 30s active time, got %d (elapsed %v)", m.quoteIndex, m.quoteElapsed)
+	}
+
+	// Next tick (200ms into quote 2) -> types first characters
+	updated, _ = m.Update(tickMsg(start.Add(40200 * time.Millisecond)))
+	m = updated.(Model)
+	rendered = m.renderQuote()
+	if !strings.Contains(rendered, "S") {
+		t.Fatalf("expected quote 2 to begin typing 'S', got %q", rendered)
+	}
+}

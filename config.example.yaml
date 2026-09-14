@@ -32,3 +32,13 @@ notifications: true
 
 # Terminal bell on transitions
 bell: true
+
+# Time interval to alternate motivational/focus phrases (default 30s)
+quote_interval: 30s
+
+# Phrases/quotes displayed with typewriter animation during session
+# If omitted or empty, nothing is displayed
+quotes:
+  - "Inhale peace, exhale tension."
+  - "Trust the rhythm of your breath."
+  - "Be present in the stillness."

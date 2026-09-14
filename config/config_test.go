@@ -91,12 +91,22 @@ func TestSetValidKeys(t *testing.T) {
 		t.Fatalf("Set breaths failed: %v", err)
 	}
 
+	cfg, err = Set("quote_interval", "15s")
+	if err != nil || cfg.QuoteInterval != 15*time.Second {
+		t.Fatalf("Set quote_interval failed: %v", err)
+	}
+
+	cfg, err = Set("quotes", "Breathe in, breathe out; Stay calm")
+	if err != nil || len(cfg.Quotes) != 2 || cfg.Quotes[0] != "Breathe in, breathe out" || cfg.Quotes[1] != "Stay calm" {
+		t.Fatalf("Set quotes failed: %v, %#v", err, cfg.Quotes)
+	}
+
 	// Verify persistence by loading afresh
 	loaded, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.Rounds != 5 || loaded.Theme != "nord" || loaded.Notifications || loaded.Bell || loaded.Font != "mono12" || loaded.Mode != "counted" || loaded.Breaths != 40 {
+	if loaded.Rounds != 5 || loaded.Theme != "nord" || loaded.Notifications || loaded.Bell || loaded.Font != "mono12" || loaded.Mode != "counted" || loaded.Breaths != 40 || loaded.QuoteInterval != 15*time.Second || len(loaded.Quotes) != 2 {
 		t.Fatalf("re-loaded config mismatch: %#v", loaded)
 	}
 }

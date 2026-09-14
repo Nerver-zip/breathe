@@ -37,6 +37,10 @@ type Model struct {
 	confirmReset         bool
 	wasPausedBeforeModal bool
 	lastActionTime       time.Time
+	quotes               []string
+	quoteInterval        time.Duration
+	quoteIndex           int
+	quoteElapsed         time.Duration
 }
 
 func newProgressBar(th theme.Theme) progress.Model {
@@ -56,12 +60,13 @@ func newProgressBar(th theme.Theme) progress.Model {
 func New(engine *session.Engine, themeName string) Model {
 	th := themeByName(themeName)
 	return Model{
-		engine:      engine,
-		theme:       th,
-		font:        DefaultFont,
-		startedAt:   time.Now(),
-		notifier:    notify.New(notify.Options{Desktop: false, Bell: false}),
-		progressBar: newProgressBar(th),
+		engine:        engine,
+		theme:         th,
+		font:          DefaultFont,
+		startedAt:     time.Now(),
+		notifier:      notify.New(notify.Options{Desktop: false, Bell: false}),
+		progressBar:   newProgressBar(th),
+		quoteInterval: 30 * time.Second,
 	}
 }
 
@@ -71,15 +76,33 @@ func NewSessionModel(engine *session.Engine, store *storage.Store, sessionID int
 	}
 	th := themeByName(themeName)
 	return Model{
-		engine:      engine,
-		store:       store,
-		sessionID:   sessionID,
-		startedAt:   startedAt,
-		notifier:    notif,
-		theme:       th,
-		font:        font,
-		progressBar: newProgressBar(th),
+		engine:        engine,
+		store:         store,
+		sessionID:     sessionID,
+		startedAt:     startedAt,
+		notifier:      notif,
+		theme:         th,
+		font:          font,
+		progressBar:   newProgressBar(th),
+		quoteInterval: 30 * time.Second,
 	}
+}
+
+func (m *Model) SetQuotes(quotes []string, interval time.Duration) {
+	var clean []string
+	for _, q := range quotes {
+		q = strings.TrimSpace(q)
+		if q != "" {
+			clean = append(clean, q)
+		}
+	}
+	m.quotes = clean
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	m.quoteInterval = interval
+	m.quoteIndex = 0
+	m.quoteElapsed = 0
 }
 
 func tick() tea.Cmd {
@@ -148,6 +171,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastTick = now
 			m.engine.Tick(delta)
 			m.processEvents()
+
+			if len(m.quotes) > 0 && !m.engine.Paused() && !m.engine.Done() {
+				m.quoteElapsed += delta
+				if m.quoteElapsed >= m.quoteInterval {
+					m.quoteElapsed = 0
+					m.quoteIndex = (m.quoteIndex + 1) % len(m.quotes)
+				}
+			}
 		}
 		return m, tick()
 
@@ -414,8 +445,10 @@ func (m Model) View() string {
 	}
 	hotkeys := muted.Render(hotkeysText)
 
-	centerContent := lipgloss.JoinVertical(
-		lipgloss.Center,
+	quoteWidget := m.renderQuote()
+
+	var centerElements []string
+	centerElements = append(centerElements,
 		statusStyle.Bold(true).Render("● "+status),
 		primary.Bold(true).Render(phaseTitle),
 		secondary.Render(instruction),
@@ -423,9 +456,13 @@ func (m Model) View() string {
 		clockBlock,
 		"",
 		progressBarView,
-		"",
-		hotkeys,
 	)
+	if quoteWidget != "" {
+		centerElements = append(centerElements, "", quoteWidget)
+	}
+	centerElements = append(centerElements, "", hotkeys)
+
+	centerContent := lipgloss.JoinVertical(lipgloss.Center, centerElements...)
 
 	if m.width <= 0 || m.height <= 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, header, "", centerContent)
@@ -438,6 +475,37 @@ func (m Model) View() string {
 
 	placedCenter := lipgloss.Place(w, availH, lipgloss.Center, lipgloss.Center, centerContent)
 	return header + "\n\n" + placedCenter
+}
+
+func (m Model) renderQuote() string {
+	if len(m.quotes) == 0 {
+		return ""
+	}
+	quote := m.quotes[m.quoteIndex]
+	if quote == "" {
+		return ""
+	}
+
+	runes := []rune(quote)
+	// Typewriter speed: 45ms per character
+	charInterval := 45 * time.Millisecond
+	charCount := int(m.quoteElapsed / charInterval)
+
+	isTyping := charCount < len(runes)
+	if charCount > len(runes) {
+		charCount = len(runes)
+	}
+
+	typed := string(runes[:charCount])
+	cursor := ""
+	if isTyping {
+		cursor = "▍"
+	}
+
+	quoteStyle := lipgloss.NewStyle().Foreground(m.theme.Secondary).Italic(true)
+	cursorStyle := lipgloss.NewStyle().Foreground(m.theme.Accent)
+
+	return quoteStyle.Render(typed) + cursorStyle.Render(cursor)
 }
 
 func (m Model) renderProgressBar() string {

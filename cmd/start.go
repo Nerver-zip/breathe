@@ -150,6 +150,9 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	})
 
 	model := tui.NewSessionModel(engine, store, sessionID, startedAt, notif, themeName, font)
+	if len(cfg.Quotes) > 0 {
+		model.SetQuotes(cfg.Quotes, cfg.QuoteInterval)
+	}
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	finalModel, err := program.Run()
 	if err != nil {
