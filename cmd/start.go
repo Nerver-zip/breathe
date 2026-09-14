@@ -28,6 +28,9 @@ var (
 	flagAutoNext  bool
 	flagTheme     string
 	flagFont      string
+	flagCounted   int
+	flagTimed     bool
+	flagBreaths   int
 )
 
 func init() {
@@ -39,6 +42,10 @@ func init() {
 		c.Flags().BoolVar(&flagAutoNext, "auto-next", defaults.AutoNextRound, "automatically start the next round after recovery")
 		c.Flags().StringVar(&flagTheme, "theme", "", "theme override")
 		c.Flags().StringVar(&flagFont, "font", "", "font override (ansiShadow, mono12, ansi, rebel)")
+		c.Flags().IntVar(&flagCounted, "counted", 0, "run in breath-counted mode with target breaths (default 30)")
+		c.Flags().Lookup("counted").NoOptDefVal = "30"
+		c.Flags().BoolVar(&flagTimed, "timed", false, "run in timed countdown mode")
+		c.Flags().IntVar(&flagBreaths, "breaths", defaults.Breaths, "target breaths in counted mode")
 	}
 }
 
@@ -56,6 +63,14 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	font := cfg.Font
 	if font == "" {
 		font = "ansiShadow"
+	}
+	mode := cfg.Mode
+	if mode == "" {
+		mode = "timed"
+	}
+	targetBreaths := cfg.Breaths
+	if targetBreaths <= 0 {
+		targetBreaths = 30
 	}
 
 	if cmd != nil {
@@ -77,9 +92,24 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		if cmd.Flags().Changed("font") && flagFont != "" {
 			font = flagFont
 		}
+		if cmd.Flags().Changed("breaths") {
+			targetBreaths = flagBreaths
+		}
+		if cmd.Flags().Changed("counted") {
+			mode = "counted"
+			if flagCounted > 0 {
+				targetBreaths = flagCounted
+			}
+		}
+		if cmd.Flags().Changed("timed") && flagTimed {
+			mode = "timed"
+		}
 	}
 	if rounds < 1 || breathing <= 0 || recovery <= 0 {
 		return fmt.Errorf("rounds and durations must be positive")
+	}
+	if targetBreaths < 1 {
+		return fmt.Errorf("target breaths must be positive")
 	}
 	if _, err := theme.Get(themeName); err != nil {
 		return err
@@ -105,11 +135,18 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		Bell:    cfg.Bell,
 	})
 
+	engineMode := session.BreathingModeTimed
+	if mode == "counted" {
+		engineMode = session.BreathingModeCounted
+	}
+
 	engine := session.New(session.Settings{
 		Rounds:        rounds,
 		Breathing:     breathing,
 		Recovery:      recovery,
 		AutoNextRound: autoNext,
+		Mode:          engineMode,
+		TargetBreaths: targetBreaths,
 	})
 
 	model := tui.NewSessionModel(engine, store, sessionID, startedAt, notif, themeName, font)

@@ -225,3 +225,96 @@ func TestEarlyAdvanceDuringPhases(t *testing.T) {
 		t.Fatalf("unexpected round 1 result: %#v", r)
 	}
 }
+
+func TestAddBreathingTimeTimedMode(t *testing.T) {
+	e := New(Settings{
+		Rounds:    2,
+		Breathing: 30 * time.Second,
+		Recovery:  10 * time.Second,
+		Mode:      BreathingModeTimed,
+	})
+
+	// Add 30s to round 1 breathing
+	ok := e.AddBreathingTime(30 * time.Second)
+	if !ok {
+		t.Fatal("expected AddBreathingTime to succeed in PhaseBreathing")
+	}
+	if e.PhaseClock() != 60*time.Second {
+		t.Fatalf("expected clock to be 60s, got %s", e.PhaseClock())
+	}
+
+	// Advance through round 1
+	e.Tick(60 * time.Second)
+	if e.Phase() != PhaseRetention {
+		t.Fatalf("expected PhaseRetention after 60s, got %s", e.Phase())
+	}
+	e.Advance()              // to recovery
+	e.Tick(10 * time.Second) // finishes round 1
+	e.Advance()              // to round 2 breathing
+
+	// Verify bonus time does NOT affect round 2!
+	if e.Round() != 2 {
+		t.Fatalf("expected round 2, got %d", e.Round())
+	}
+	if e.BonusBreathing() != 0 {
+		t.Fatalf("expected bonusBreathing to be 0 for round 2, got %s", e.BonusBreathing())
+	}
+	if e.PhaseClock() != 30*time.Second {
+		t.Fatalf("expected round 2 clock to be 30s, got %s", e.PhaseClock())
+	}
+}
+
+func TestCountedBreathingMode(t *testing.T) {
+	e := New(Settings{
+		Rounds:        2,
+		Breathing:     1 * time.Minute,
+		Recovery:      10 * time.Second,
+		Mode:          BreathingModeCounted,
+		TargetBreaths: 5,
+	})
+
+	if e.Mode() != BreathingModeCounted {
+		t.Fatalf("expected counted mode, got %s", e.Mode())
+	}
+	if e.TargetBreaths() != 5 {
+		t.Fatalf("expected target 5, got %d", e.TargetBreaths())
+	}
+
+	// Time counts up in counted mode
+	e.Tick(10 * time.Second)
+	if e.PhaseElapsed() != 10*time.Second || e.PhaseClock() != 10*time.Second {
+		t.Fatalf("expected elapsed 10s, got %s", e.PhaseClock())
+	}
+
+	// Increment breaths
+	for i := 1; i <= 4; i++ {
+		ok := e.IncrementBreaths()
+		if !ok || e.Breaths() != i {
+			t.Fatalf("expected breath %d, got %d", i, e.Breaths())
+		}
+	}
+	if e.Phase() != PhaseBreathing {
+		t.Fatalf("expected still in PhaseBreathing at 4 breaths, got %s", e.Phase())
+	}
+	if p := e.Progress(); p != 4.0/5.0 {
+		t.Fatalf("expected progress 0.8, got %f", p)
+	}
+
+	// 5th breath reaches target -> auto to retention!
+	e.IncrementBreaths()
+	if e.Phase() != PhaseRetention {
+		t.Fatalf("expected PhaseRetention after reaching target breaths, got %s", e.Phase())
+	}
+
+	// Advance to recovery and round 2
+	e.Advance()              // recovery
+	e.Tick(10 * time.Second) // finishes round 1
+	e.Advance()              // start round 2
+
+	if e.Round() != 2 {
+		t.Fatalf("expected round 2, got %d", e.Round())
+	}
+	if e.Breaths() != 0 {
+		t.Fatalf("expected breaths reset to 0 for round 2, got %d", e.Breaths())
+	}
+}

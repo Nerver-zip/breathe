@@ -12,11 +12,20 @@ const (
 	PhaseComplete   Phase = "complete"
 )
 
+type BreathingMode string
+
+const (
+	BreathingModeTimed   BreathingMode = "timed"
+	BreathingModeCounted BreathingMode = "counted"
+)
+
 type Settings struct {
 	Rounds        int
 	Breathing     time.Duration
 	Recovery      time.Duration
 	AutoNextRound bool
+	Mode          BreathingMode
+	TargetBreaths int
 }
 
 type RoundResult struct {
@@ -24,6 +33,7 @@ type RoundResult struct {
 	Breathing time.Duration
 	Retention time.Duration
 	Recovery  time.Duration
+	Breaths   int
 }
 
 type EventType string
@@ -46,6 +56,8 @@ type Engine struct {
 	round          int
 	phaseElapsed   time.Duration
 	sessionElapsed time.Duration
+	bonusBreathing time.Duration
+	breaths        int
 	paused         bool
 	results        []RoundResult
 	current        RoundResult
@@ -62,6 +74,12 @@ func New(settings Settings) *Engine {
 	if settings.Recovery <= 0 {
 		settings.Recovery = 30 * time.Second
 	}
+	if settings.Mode != BreathingModeCounted {
+		settings.Mode = BreathingModeTimed
+	}
+	if settings.TargetBreaths <= 0 {
+		settings.TargetBreaths = 30
+	}
 	return &Engine{
 		settings: settings,
 		phase:    PhaseBreathing,
@@ -77,16 +95,23 @@ func (e *Engine) Tick(delta time.Duration) {
 
 	switch e.phase {
 	case PhaseBreathing:
-		remaining := e.settings.Breathing - e.phaseElapsed
-		step := minDuration(delta, remaining)
-		e.phaseElapsed += step
-		e.sessionElapsed += step
-		e.current.Breathing += step
-		if e.phaseElapsed >= e.settings.Breathing {
-			e.toRetention(true)
-			if delta > step {
-				e.Tick(delta - step)
+		if e.settings.Mode == BreathingModeTimed {
+			totalBreathing := e.settings.Breathing + e.bonusBreathing
+			remaining := totalBreathing - e.phaseElapsed
+			step := minDuration(delta, remaining)
+			e.phaseElapsed += step
+			e.sessionElapsed += step
+			e.current.Breathing += step
+			if e.phaseElapsed >= totalBreathing {
+				e.toRetention(true)
+				if delta > step {
+					e.Tick(delta - step)
+				}
 			}
+		} else {
+			e.phaseElapsed += delta
+			e.sessionElapsed += delta
+			e.current.Breathing += delta
 		}
 	case PhaseRetention:
 		e.phaseElapsed += delta
@@ -147,6 +172,9 @@ func (e *Engine) ResetCurrentPhase() bool {
 		e.sessionElapsed = clampNonNegative(e.sessionElapsed - e.current.Breathing)
 		e.current.Breathing = 0
 		e.phaseElapsed = 0
+		e.bonusBreathing = 0
+		e.breaths = 0
+		e.current.Breaths = 0
 		return true
 	case PhaseRetention:
 		e.sessionElapsed = clampNonNegative(e.sessionElapsed - e.current.Retention)
@@ -215,6 +243,8 @@ func (e *Engine) startNextRound() {
 	e.round++
 	e.phase = PhaseBreathing
 	e.phaseElapsed = 0
+	e.bonusBreathing = 0
+	e.breaths = 0
 	e.paused = false
 	e.current = RoundResult{Index: e.round}
 }
@@ -230,11 +260,59 @@ func (e *Engine) RecoveryDuration() time.Duration  { return e.settings.Recovery 
 func (e *Engine) Done() bool                       { return e.phase == PhaseComplete }
 func (e *Engine) Settings() Settings               { return e.settings }
 func (e *Engine) CurrentRound() RoundResult        { return e.current }
+func (e *Engine) Mode() BreathingMode {
+	if e.settings.Mode == "" {
+		return BreathingModeTimed
+	}
+	return e.settings.Mode
+}
+func (e *Engine) TargetBreaths() int {
+	if e.settings.TargetBreaths <= 0 {
+		return 30
+	}
+	return e.settings.TargetBreaths
+}
+func (e *Engine) Breaths() int {
+	return e.breaths
+}
+func (e *Engine) BonusBreathing() time.Duration {
+	return e.bonusBreathing
+}
+
+// AddBreathingTime adds extra time to the current breathing countdown.
+// Only applies to the active round and does not alter subsequent rounds.
+func (e *Engine) AddBreathingTime(d time.Duration) bool {
+	if e.phase != PhaseBreathing || e.settings.Mode != BreathingModeTimed {
+		return false
+	}
+	if d <= 0 {
+		return false
+	}
+	e.bonusBreathing += d
+	return true
+}
+
+// IncrementBreaths records one breath taken in counted breathing mode.
+// Automatically transitions to retention once the target is met.
+func (e *Engine) IncrementBreaths() bool {
+	if e.phase != PhaseBreathing || e.settings.Mode != BreathingModeCounted {
+		return false
+	}
+	e.breaths++
+	e.current.Breaths = e.breaths
+	if e.breaths >= e.settings.TargetBreaths {
+		e.toRetention(true)
+	}
+	return true
+}
 
 func (e *Engine) PhaseClock() time.Duration {
 	switch e.phase {
 	case PhaseBreathing:
-		return clampNonNegative(e.settings.Breathing - e.phaseElapsed)
+		if e.settings.Mode == BreathingModeTimed {
+			return clampNonNegative((e.settings.Breathing + e.bonusBreathing) - e.phaseElapsed)
+		}
+		return e.phaseElapsed
 	case PhaseRetention:
 		return e.phaseElapsed
 	case PhaseRecovery:
@@ -247,7 +325,20 @@ func (e *Engine) PhaseClock() time.Duration {
 func (e *Engine) Progress() float64 {
 	switch e.phase {
 	case PhaseBreathing:
-		return fraction(e.phaseElapsed, e.settings.Breathing)
+		if e.settings.Mode == BreathingModeTimed {
+			return fraction(e.phaseElapsed, e.settings.Breathing+e.bonusBreathing)
+		}
+		if e.settings.TargetBreaths <= 0 {
+			return 0
+		}
+		v := float64(e.breaths) / float64(e.settings.TargetBreaths)
+		if v < 0 {
+			return 0
+		}
+		if v > 1 {
+			return 1
+		}
+		return v
 	case PhaseRecovery:
 		return fraction(e.phaseElapsed, e.settings.Recovery)
 	default:

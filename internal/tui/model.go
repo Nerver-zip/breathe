@@ -220,6 +220,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.confirmQuit = true
 			return m, nil
 
+		case "a", "A", "+":
+			if m.engine.Phase() == session.PhaseBreathing {
+				if m.engine.Mode() == session.BreathingModeTimed {
+					m.engine.AddBreathingTime(30 * time.Second)
+				} else if m.engine.Mode() == session.BreathingModeCounted {
+					m.engine.IncrementBreaths()
+					m.processEvents()
+				}
+			}
+			return m, nil
+
 		case " ", "p":
 			m.engine.TogglePause()
 			return m, nil
@@ -303,18 +314,34 @@ func (m Model) View() string {
 	}
 
 	phaseTitle, instruction := phaseCopy(m.engine.Phase())
-	clock := formatClock(m.engine.PhaseClock())
+	if m.engine.Phase() == session.PhaseBreathing && m.engine.Mode() == session.BreathingModeCounted {
+		instruction = "inhale fully, exhale without forcing • press [a] after each breath"
+	}
 
-	// Responsive Clock: ASCII Big Clock on >= 60x18, standard clock on compact terminals
 	clockBlock := ""
-	if m.width >= 60 && m.height >= 18 {
-		f := m.font
-		if f == "" {
-			f = DefaultFont
+	f := m.font
+	if f == "" {
+		f = DefaultFont
+	}
+
+	if m.engine.Phase() == session.PhaseBreathing && m.engine.Mode() == session.BreathingModeCounted {
+		breathsStr := fmt.Sprintf("%02d", m.engine.Breaths())
+		if m.width >= 60 && m.height >= 18 {
+			bigDigits := primary.Bold(true).Render(RenderClock(breathsStr, f))
+			subText := muted.Render(fmt.Sprintf("breaths %d / %d   •   elapsed %s",
+				m.engine.Breaths(), m.engine.TargetBreaths(), formatClock(m.engine.PhaseElapsed())))
+			clockBlock = lipgloss.JoinVertical(lipgloss.Center, bigDigits, subText)
+		} else {
+			clockBlock = primary.Bold(true).Render(fmt.Sprintf("  🫁  BREATHS %d / %d  (%s)  ",
+				m.engine.Breaths(), m.engine.TargetBreaths(), formatClock(m.engine.PhaseElapsed())))
 		}
-		clockBlock = primary.Bold(true).Render(RenderClock(clock, f))
 	} else {
-		clockBlock = primary.Bold(true).Render(fmt.Sprintf("  ⏱  %s  ", clock))
+		clock := formatClock(m.engine.PhaseClock())
+		if m.width >= 60 && m.height >= 18 {
+			clockBlock = primary.Bold(true).Render(RenderClock(clock, f))
+		} else {
+			clockBlock = primary.Bold(true).Render(fmt.Sprintf("  ⏱  %s  ", clock))
+		}
 	}
 
 	status := "RUNNING"
@@ -362,7 +389,15 @@ func (m Model) View() string {
 
 	progressBarView := m.renderProgressBar()
 
-	hotkeys := muted.Render("[space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit")
+	hotkeysText := "[space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit"
+	if m.engine.Phase() == session.PhaseBreathing {
+		if m.engine.Mode() == session.BreathingModeCounted {
+			hotkeysText = "[a] +1 breath  [space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit"
+		} else {
+			hotkeysText = "[a] +30s  [space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit"
+		}
+	}
+	hotkeys := muted.Render(hotkeysText)
 
 	centerContent := lipgloss.JoinVertical(
 		lipgloss.Center,
@@ -441,7 +476,11 @@ func (m Model) viewSummary() string {
 				deltaStr = muted.Render(" (=)")
 			}
 		}
-		fmt.Fprintf(&table, "  Round %d:   %s%s\n", r.Index, primary.Bold(true).Render(formatClock(r.Retention)), deltaStr)
+		breathsStr := ""
+		if r.Breaths > 0 {
+			breathsStr = muted.Render(fmt.Sprintf(" (%d breaths)", r.Breaths))
+		}
+		fmt.Fprintf(&table, "  Round %d:   %s%s%s\n", r.Index, primary.Bold(true).Render(formatClock(r.Retention)), deltaStr, breathsStr)
 	}
 
 	var avgRetention time.Duration

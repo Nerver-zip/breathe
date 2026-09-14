@@ -207,12 +207,13 @@ func RenderHelpModal(th theme.Theme, width, height int) string {
 	content.WriteString(headStyle.Render("Controls:") + "\n")
 	content.WriteString(fmt.Sprintf("  %s   Pause / resume session clocks\n", keyStyle.Render("Space / p")))
 	content.WriteString(fmt.Sprintf("  %s   Advance phase / confirm next round\n", keyStyle.Render("Enter / n")))
+	content.WriteString(fmt.Sprintf("  %s           Add +30s (timed) or count breath (counted)\n", keyStyle.Render("a        ")))
 	content.WriteString(fmt.Sprintf("  %s           Restart current phase\n", keyStyle.Render("r        ")))
 	content.WriteString(fmt.Sprintf("  %s           Toggle this help overlay\n", keyStyle.Render("?        ")))
 	content.WriteString(fmt.Sprintf("  %s           Quit session (confirms if active)\n\n", keyStyle.Render("q / Esc  ")))
 
 	content.WriteString(headStyle.Render("Session Phases:") + "\n")
-	content.WriteString(textStyle.Render("  1. Deep Breathing: Countdown. Inhale fully, exhale without force.\n"))
+	content.WriteString(textStyle.Render("  1. Deep Breathing: Timed countdown or breath-counted. Inhale fully, exhale without force.\n"))
 	content.WriteString(textStyle.Render("  2. Retention: Count-up. Open-ended hold after exhale. Press Enter to end.\n"))
 	content.WriteString(textStyle.Render("  3. Recovery Hold: Countdown. Take one deep breath in and hold.\n\n"))
 

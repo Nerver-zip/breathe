@@ -81,12 +81,22 @@ func TestSetValidKeys(t *testing.T) {
 		t.Fatalf("Set font failed: %v", err)
 	}
 
+	cfg, err = Set("mode", "counted")
+	if err != nil || cfg.Mode != "counted" {
+		t.Fatalf("Set mode failed: %v", err)
+	}
+
+	cfg, err = Set("breaths", "40")
+	if err != nil || cfg.Breaths != 40 {
+		t.Fatalf("Set breaths failed: %v", err)
+	}
+
 	// Verify persistence by loading afresh
 	loaded, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.Rounds != 5 || loaded.Theme != "nord" || loaded.Notifications || loaded.Bell || loaded.Font != "mono12" {
+	if loaded.Rounds != 5 || loaded.Theme != "nord" || loaded.Notifications || loaded.Bell || loaded.Font != "mono12" || loaded.Mode != "counted" || loaded.Breaths != 40 {
 		t.Fatalf("re-loaded config mismatch: %#v", loaded)
 	}
 }

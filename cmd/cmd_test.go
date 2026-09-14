@@ -115,3 +115,15 @@ func TestCLIStatsPlainAndJSON(t *testing.T) {
 		t.Fatalf("unexpected stats --json output: %s", out)
 	}
 }
+
+func TestCLIStartFlagsHelp(t *testing.T) {
+	setupTestEnv(t)
+
+	out, err := executeCommand("start", "--help")
+	if err != nil {
+		t.Fatalf("start --help error: %v", err)
+	}
+	if !strings.Contains(out, "--counted") || !strings.Contains(out, "--timed") || !strings.Contains(out, "--breaths") {
+		t.Fatalf("expected flags --counted, --timed, --breaths in help output, got:\n%s", out)
+	}
+}
