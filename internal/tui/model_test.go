@@ -279,35 +279,57 @@ func TestKeyAIncrementsBreathsInCountedMode(t *testing.T) {
 	m.width = 80
 	m.height = 24
 
-	// Verify hotkeys show [a] +1 breath
+	// Verify hotkeys show [a] +1 and [s] -1
 	view := m.View()
-	if !strings.Contains(view, "[a] +1 breath") {
-		t.Fatalf("expected hotkey [a] +1 breath in counted mode, got:\n%s", view)
+	if !strings.Contains(view, "[a] +1  [s] -1") {
+		t.Fatalf("expected hotkeys '[a] +1  [s] -1' in counted mode, got:\n%s", view)
 	}
 
-	// Press 'a' twice (breaths = 1, then 2)
+	// Press 'a' (first breath)
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = updated.(Model)
 	if engine.Breaths() != 1 {
 		t.Fatalf("expected 1 breath, got %d", engine.Breaths())
 	}
 
+	// Immediate repeat (key held down / spam within debounce window) should be BLOCKED!
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(Model)
+	if engine.Breaths() != 1 {
+		t.Fatalf("expected continuous key-repeat to be blocked by debounce, got %d", engine.Breaths())
+	}
+
+	// Simulate legitimate deliberate next press by clearing debounce timestamp
+	m.lastActionTime = time.Time{}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = updated.(Model)
 	if engine.Breaths() != 2 {
 		t.Fatalf("expected 2 breaths, got %d", engine.Breaths())
 	}
-	if engine.Phase() != session.PhaseBreathing {
-		t.Fatalf("expected still in PhaseBreathing, got %s", engine.Phase())
+
+	// Press 's' to subtract 1 (decrement test)
+	m.lastActionTime = time.Time{}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = updated.(Model)
+	if engine.Breaths() != 1 {
+		t.Fatalf("expected breath count to decrease to 1 with 's', got %d", engine.Breaths())
 	}
 
-	// Press 'a' a 3rd time -> reaches target (3) -> auto-advances to retention!
+	// Press 'a' back to 2, then to 3 (target reached)
+	m.lastActionTime = time.Time{}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(Model)
+	if engine.Breaths() != 2 {
+		t.Fatalf("expected 2 breaths, got %d", engine.Breaths())
+	}
+
+	m.lastActionTime = time.Time{}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = updated.(Model)
 	if engine.Breaths() != 3 {
 		t.Fatalf("expected 3 breaths, got %d", engine.Breaths())
 	}
 	if engine.Phase() != session.PhaseRetention {
-		t.Fatalf("expected auto-transition to PhaseRetention upon target, got %s", engine.Phase())
+		t.Fatalf("expected auto-transition to PhaseRetention upon reaching target, got %s", engine.Phase())
 	}
 }

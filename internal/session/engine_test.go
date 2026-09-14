@@ -318,3 +318,37 @@ func TestCountedBreathingMode(t *testing.T) {
 		t.Fatalf("expected breaths reset to 0 for round 2, got %d", e.Breaths())
 	}
 }
+
+func TestDecrementBreaths(t *testing.T) {
+	e := New(Settings{
+		Rounds:        1,
+		Breathing:     1 * time.Minute,
+		Recovery:      10 * time.Second,
+		Mode:          BreathingModeCounted,
+		TargetBreaths: 10,
+	})
+
+	// Decrement when 0 returns false and stays 0
+	if e.DecrementBreaths() {
+		t.Fatal("expected DecrementBreaths to return false at 0")
+	}
+	if e.Breaths() != 0 {
+		t.Fatalf("expected 0 breaths, got %d", e.Breaths())
+	}
+
+	// Increment to 3
+	e.IncrementBreaths()
+	e.IncrementBreaths()
+	e.IncrementBreaths()
+	if e.Breaths() != 3 {
+		t.Fatalf("expected 3 breaths, got %d", e.Breaths())
+	}
+
+	// Decrement back to 2
+	if !e.DecrementBreaths() {
+		t.Fatal("expected DecrementBreaths to succeed")
+	}
+	if e.Breaths() != 2 {
+		t.Fatalf("expected 2 breaths after decrement, got %d", e.Breaths())
+	}
+}

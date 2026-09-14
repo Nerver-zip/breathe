@@ -306,6 +306,20 @@ func (e *Engine) IncrementBreaths() bool {
 	return true
 }
 
+// DecrementBreaths subtracts one breath from the counter in case of mistake.
+// Cannot go below 0.
+func (e *Engine) DecrementBreaths() bool {
+	if e.phase != PhaseBreathing || e.settings.Mode != BreathingModeCounted {
+		return false
+	}
+	if e.breaths > 0 {
+		e.breaths--
+		e.current.Breaths = e.breaths
+		return true
+	}
+	return false
+}
+
 func (e *Engine) PhaseClock() time.Duration {
 	switch e.phase {
 	case PhaseBreathing:

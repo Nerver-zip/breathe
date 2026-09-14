@@ -36,6 +36,7 @@ type Model struct {
 	confirmQuit          bool
 	confirmReset         bool
 	wasPausedBeforeModal bool
+	lastActionTime       time.Time
 }
 
 func newProgressBar(th theme.Theme) progress.Model {
@@ -222,12 +223,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "a", "A", "+":
 			if m.engine.Phase() == session.PhaseBreathing {
+				if time.Since(m.lastActionTime) < 300*time.Millisecond {
+					return m, nil
+				}
+				m.lastActionTime = time.Now()
 				if m.engine.Mode() == session.BreathingModeTimed {
 					m.engine.AddBreathingTime(30 * time.Second)
 				} else if m.engine.Mode() == session.BreathingModeCounted {
 					m.engine.IncrementBreaths()
 					m.processEvents()
 				}
+			}
+			return m, nil
+
+		case "s", "S", "-":
+			if m.engine.Phase() == session.PhaseBreathing && m.engine.Mode() == session.BreathingModeCounted {
+				if time.Since(m.lastActionTime) < 300*time.Millisecond {
+					return m, nil
+				}
+				m.lastActionTime = time.Now()
+				m.engine.DecrementBreaths()
 			}
 			return m, nil
 
@@ -392,7 +407,7 @@ func (m Model) View() string {
 	hotkeysText := "[space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit"
 	if m.engine.Phase() == session.PhaseBreathing {
 		if m.engine.Mode() == session.BreathingModeCounted {
-			hotkeysText = "[a] +1 breath  [space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit"
+			hotkeysText = "[a] +1  [s] -1  [space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit"
 		} else {
 			hotkeysText = "[a] +30s  [space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit"
 		}
