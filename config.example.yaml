@@ -1,0 +1,34 @@
+# Breathing TUI Configuration Reference
+# Default location: ~/.config/breath/config.yaml (or $XDG_CONFIG_HOME/breath/config.yaml)
+
+# Number of breathing rounds in a session
+rounds: 3
+
+# Breathing Phase Mode:
+# - "counted": manual breath counting via 'a' (+1) and 's' (-1), auto-advancing at target
+# - "timed": traditional countdown timer (extendable with 'a' for +30s)
+mode: counted
+
+# Target breath count when mode is "counted"
+breaths: 30
+
+# Duration of Phase 1 (deep breathing) when mode is "timed" (e.g. 3m, 2m30s)
+breathing: 3m0s
+
+# Duration of Phase 3 (recovery hold after retention) (e.g. 15s, 30s)
+recovery: 30s
+
+# Automatically begin next round after recovery finishes
+auto_next_round: false
+
+# Color theme: pomo, default, catppuccin-mocha, dracula, gruvbox, nord, tokyo-night, solarized
+theme: pomo
+
+# ASCII clock & digit font: ansiShadow, mono12, ansi, rebel
+font: ansiShadow
+
+# Desktop notifications upon phase transitions
+notifications: true
+
+# Terminal bell on transitions
+bell: true
