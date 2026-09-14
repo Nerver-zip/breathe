@@ -1,135 +1,225 @@
+<div align="center">
+
 # Breathing TUI
 
-A fast, keyboard-first terminal application for multi-round breathing practice and retention tracking: timed breathing countdown, open-ended breath retention, recovery hold, incremental session persistence, and rich statistics.
+*A fast, keyboard-first terminal breathing session timer and tracker*
+
+[![Go Version](https://img.shields.io/github/go-mod/go-version/Nerver-zip/breathe?style=flat-square)](https://go.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Built with Bubble Tea](https://img.shields.io/badge/Built%20with-Bubble%20Tea-04a5e5?style=flat-square)](https://github.com/charmbracelet/bubbletea)
+[![Styled with Lip Gloss](https://img.shields.io/badge/Styled%20with-Lip%20Gloss-7c69ec?style=flat-square)](https://github.com/charmbracelet/lipgloss)
+
+[Features](#features) • [Installation](#installation) • [Quickstart](#quickstart) • [Breathing Modes](#breathing-modes) • [Controls](#keyboard-controls) • [Statistics & Cleaner](#statistics--session-cleaner) • [Configuration](#configuration) • [Themes](#themes--fonts)
+
+</div>
+
+---
+
+**Breathing TUI** (`breath`) is a lightweight, local-first terminal application designed for multi-round breathing exercises and retention tracking. It guides you through deep breathing, open-ended retention breath-holds, and recovery periods, while persisting your practice to a local SQLite database with actionable insights, habit streaks, and a GitHub-style activity heatmap.
 
 > [!WARNING]
-> Breath-hold exercises can cause dizziness or loss of consciousness. Practice only in a safe seated or lying position, never in or near water, never while driving or operating machinery, and stop immediately if you feel unwell. This software is a timer and habit tracker, not medical guidance or health assessment.
+> **Safety Warning:** Breath-hold exercises can cause tingling, dizziness, or loss of consciousness. Always practice in a safe seated or lying position. **NEVER** practice in or near water, while driving, or while operating machinery. This software is purely a timer and habit tracker; it provides no medical advice or health diagnosis. Stop immediately if you feel unwell.
 
 ## Features
 
-- **Guided 3-Phase Rounds:**
-  1. **Deep Breathing:** Countdown timer (default `03:00 → 00:00`), guiding deep rhythmic breaths. Auto-transitions to retention at zero.
-  2. **Retention:** Count-up timer (`00:00 → ...`), open-ended hold after the exhale. Stopped manually with `Enter` when you need to breathe.
-  3. **Recovery Hold:** Countdown timer (default `00:30 → 00:00`), inhale deeply and hold. Auto-completes at zero.
-- **Dual Monotonic Clocks:** Central phase clock (ASCII large digits on standard terminals, clean text on compact screens) and session-active duration clock. Pausing freezes active exercise clocks without drift or jump on resume.
-- **Incremental Local Persistence:** Sessions and completed rounds are written to local SQLite storage as soon as each round completes. Quitting mid-session preserves completed rounds without false count of the incomplete round.
-- **Statistics Dashboard:**
-  - **Today:** Sessions completed, rounds completed, active time, best retention.
-  - **Retention Metrics:** All-time average, personal best, latest retention duration.
-  - **Habit Streak:** Current and all-time best streaks based on active local practice dates.
-  - **7-Day Bar Chart:** Daily completed rounds and active exercise duration.
-  - **~4-Month Heatmap:** GitHub-style 18-week contribution grid grouped by local date.
-  - **All-Time Totals:** Completed sessions, total rounds, cumulative active duration.
-- **Command Line & Automation:** Plain text (`--plain`) and JSON (`--json`) output modes for scripting.
-- **Personalization & Themes:** 7 built-in themes (`default`, `catppuccin-mocha`, `dracula`, `gruvbox`, `nord`, `tokyo-night`, `solarized`) with live terminal preview.
-- **Safe Quit & Reset:** Confirmation overlays protect against accidental abandonment or discarding active retention hold.
-- **Notifications & Bell:** Configurable desktop notifications and terminal bell on timed phase completion and session end, with graceful no-op fallback.
-- **100% Local-First:** No accounts, telemetry, cloud dependencies, or network calls at runtime. Respects XDG base directories.
+- **Guided 3-Phase Cycle:**
+  1. **Deep Breathing:** Timed countdown or manual breath counting. Inhale deeply, exhale without force.
+  2. **Retention:** Open-ended count-up timer after the exhale. Never auto-finishes; ends when you press `Enter`.
+  3. **Recovery Hold:** Countdown timer after deep inhalation. Auto-completes at zero.
+- **Dual Breathing Modes:** Traditional countdown timer (`--timed`, extendable with `a` for +30s) or breath-counting mode (`--counted`, with `a` for +1, `s` for -1, and anti-key-repeat debounce protection).
+- **Animated Typewriter Quotes:** Optional focus or motivational phrases typed out smoothly character-by-character on screen, cycling on a configurable interval (default: 30s).
+- **Statistics Dashboard:** A clean, unboxed terminal dashboard featuring a 4-month calendar heatmap with graduated block ramps, a 7-day activity bar chart, retention metrics (average, personal best, latest), streaks, and all-time totals.
+- **Session Cleaner:** Built-in pruning tool to purge test runs or accidental sessions using Git-like offsets (`breath clean`, `breath stats clean ~1`, `~2`) or reset entirely (`--all`).
+- **Dual Monotonic Clocks:** Central phase clock with large ASCII digit rendering (`ansiShadow`, `mono12`, `ansi`, `rebel`) and continuous session clock. Pausing freezes active timers without clock jump on resume.
+- **Incremental Persistence:** Completed rounds and retention times are saved to SQLite immediately upon completion, preventing data loss if interrupted.
+- **7 Built-in Themes:** Handcrafted palettes including `pomo`, `catppuccin-mocha`, `dracula`, `gruvbox`, `nord`, `tokyo-night`, `solarized`, and `default`.
+- **100% Local & Private:** Zero accounts, telemetry, or network calls. Fully compliant with XDG base directories.
 
-## Quick Start
+## Installation
 
-### Installation & Build
+### From Source
+
+Ensure you have [Go 1.22+](https://go.dev/dl/) installed:
 
 ```bash
-git clone https://github.com/Nerver-zip/breathing-tui.git
-cd breathing-tui
+git clone https://github.com/Nerver-zip/breathe.git
+cd breathe
 make build
-# binary is built at bin/breath
+# Binary is generated at bin/breath
 ```
 
-### Run a Session
+Install globally to your `$GOPATH/bin`:
 
-Start default session (3 rounds, 3m breathing, 30s recovery):
 ```bash
-./bin/breath start
+go install .
 ```
 
-Quick smoke test session with short durations:
+## Quickstart
+
+Start a default session (3 rounds, 30s recovery):
+
 ```bash
-./bin/breath start --rounds 2 --breathing 5s --recovery 3s
+breath start
 ```
 
-Auto-advance to the next round immediately after recovery:
+### Quick Commands
+
 ```bash
-./bin/breath start --rounds 3 --auto-next
+# Breath-counted mode with 30 target breaths per round
+breath start --counted 30
+
+# Timed breathing mode with custom durations
+breath start --timed --breathing 2m30s --recovery 30s --rounds 4
+
+# Auto-advance to the next round immediately after recovery
+breath start --auto-next
+
+# Launch with a specific theme and font
+breath start --theme pomo --font ansiShadow
 ```
 
-### View Statistics
+## Breathing Modes
 
-Open the interactive full-screen TUI dashboard:
-```bash
-./bin/breath stats
-```
+| Mode | Flag | Description | Keybindings |
+|---|---|---|---|
+| **Counted** | `--counted [N]` | Targets a specific breath count (e.g. 30 breaths). Transitions to retention automatically when the target is met. | `a` / `+`: +1 breath<br>`s` / `-`: -1 breath |
+| **Timed** | `--timed` | Traditional countdown timer for deep breathing (e.g. 3m). Automatically enters retention at 00:00. | `a` / `+`: +30s bonus time |
 
-Output for shell scripts:
-```bash
-./bin/breath stats --plain
-./bin/breath stats --json
-```
-
-### Configuration
-
-Inspect current effective settings and config path:
-```bash
-./bin/breath config show
-./bin/breath config path
-```
-
-Update persistent configuration:
-```bash
-./bin/breath config set rounds 4
-./bin/breath config set breathing 2m30s
-./bin/breath config set recovery 30s
-./bin/breath config set auto_next_round true
-./bin/breath config set theme catppuccin-mocha
-./bin/breath config set notifications true
-./bin/breath config set bell true
-```
-
-Default config file location:
-- Linux: `~/.config/breath/config.yaml` (respects `$XDG_CONFIG_HOME`)
-- Database: `~/.local/share/breath/breath.db` (respects `$XDG_DATA_HOME`)
-
-### Themes
-
-List available themes:
-```bash
-./bin/breath theme list
-```
-
-Preview a theme with palette swatches and sample components:
-```bash
-./bin/breath theme preview dracula
-./bin/breath theme preview nord
-```
-
-Set active theme:
-```bash
-./bin/breath theme set tokyo-night
-```
+> [!TIP]
+> In counted mode, the `a` and `s` keys include a hardware debounce window (300ms) to prevent accidental double-counts when holding down keys.
 
 ## Keyboard Controls
 
+### Active Session
+
+| Key | Action |
+|---|---|
+| `Space` / `p` | Pause or resume session clocks |
+| `Enter` / `n` | Advance to next phase (end retention, skip recovery) |
+| `a` / `+` | Add 1 breath (counted mode) or +30s (timed mode) |
+| `s` / `-` | Subtract 1 breath (counted mode only) |
+| `r` | Restart current phase (prompts confirmation during retention) |
+| `?` | Toggle help overlay and safety reminder |
+| `q` / `Esc` | Quit session (prompts confirmation; completed rounds are preserved) |
+
+### Summary & Overlays
+
 | Key | Context | Action |
 |---|---|---|
-| `Space` / `p` | Active Session | Pause / resume exercise clocks |
-| `Enter` / `n` | Active Session | Advance phase / confirm next round |
-| `r` | Active Session | Restart current phase (confirms if retention > 0) |
-| `?` | Any view | Toggle help & safety overlay |
-| `q` / `Esc` | Active Session | Request quit (confirms before abandoning) |
 | `Enter` / `q` | Summary Screen | Exit session |
 | `s` | Summary Screen | Open full statistics dashboard |
-| `q` / `Esc` | Stats / Help | Exit dashboard or dismiss overlay |
-| `y` / `n` | Confirmation Modal | Confirm (`y`) or cancel (`n` / `Esc`) |
+| `y` / `n` | Confirmation Dialog | Confirm (`y`) or cancel (`n` / `Esc`) |
+| `q` / `Esc` | Statistics Dashboard | Close dashboard |
 
-## Verification & Tests
+## Statistics & Session Cleaner
 
-Run the complete test suite and code quality gate:
+View your practice statistics in a full-screen terminal dashboard:
+
 ```bash
-make check
+breath stats
 ```
-This runs formatting checks (`gofmt`), unit and integration tests (`go test ./...`), vet analysis (`go vet ./...`), and compilation (`go build`).
 
-## Safety Disclaimer
+For shell scripts and automated exports:
 
-This application is purely a timer and session tracker. It does not provide medical guidance, diagnoses, or physiological fitness scores. Never practice breath retention in water, while operating a vehicle, or while standing. Always consult a healthcare professional before beginning vigorous breathwork practices.
+```bash
+breath stats --plain   # Plain text summary
+breath stats --json    # Structured JSON output
+```
+
+### Session Cleaner
+
+Prune test sessions or accidental recordings without modifying the database directly:
+
+```bash
+# Delete the latest session
+breath clean
+# or: breath stats clean
+
+# Delete the previous session (~1)
+breath clean ~1
+
+# Delete the penultimate session (~2)
+breath clean ~2
+
+# Delete all recorded sessions and reset history
+breath clean --all
+```
+
+## Configuration
+
+Settings are saved automatically in `~/.config/breath/config.yaml` (respects `$XDG_CONFIG_HOME`).
+
+See [`config.example.yaml`](config.example.yaml) for a complete template.
+
+### CLI Configuration Manager
+
+```bash
+# View current effective configuration
+breath config show
+
+# Print configuration file path
+breath config path
+
+# Modify persistent settings
+breath config set mode counted
+breath config set breaths 30
+breath config set recovery 30s
+breath config set theme pomo
+breath config set font ansiShadow
+breath config set quote_interval 30s
+breath config set notifications true
+breath config set bell true
+```
+
+### Typewriter Phrases
+
+Configure focus or mindfulness phrases to appear on screen with an animated typewriter effect during sessions:
+
+```yaml
+# ~/.config/breath/config.yaml
+
+quote_interval: 30s
+quotes:
+  - "Inhale peace, exhale tension."
+  - "Trust the rhythm of your breath."
+  - "Be present in the stillness."
+```
+
+> [!NOTE]
+> If `quotes` is empty or omitted, no quote banner or empty space will be displayed.
+
+## Themes & Fonts
+
+### Themes
+
+List and preview built-in color palettes:
+
+```bash
+# List all themes
+breath theme list
+
+# Preview theme swatches and mock components
+breath theme preview pomo
+breath theme preview dracula
+breath theme preview catppuccin-mocha
+
+# Set the active theme
+breath theme set pomo
+```
+
+Supported themes: `pomo`, `default`, `catppuccin-mocha`, `dracula`, `gruvbox`, `nord`, `tokyo-night`, `solarized`.
+
+### Digit Fonts
+
+Configure the clock font for the central timer:
+
+- `ansiShadow` (default, modern angled shadow)
+- `mono12` (compact clean monospace)
+- `ansi` (classic retro terminal blocks)
+- `rebel` (bold artistic font)
+
+```bash
+breath config set font ansiShadow
+```
+
+On compact terminal windows (under 60 columns or 18 rows), the interface gracefully collapses to inline text representation.
