@@ -4,70 +4,70 @@ The agent should treat every unchecked item as work remaining.
 
 ## Build and quality
 
-- [ ] `gofmt` leaves no changes.
-- [ ] `go test ./...` passes.
-- [ ] `go vet ./...` passes.
-- [ ] `go build ./...` passes.
-- [ ] CI runs equivalent checks.
+- [x] `gofmt` leaves no changes.
+- [x] `go test ./...` passes.
+- [x] `go vet ./...` passes.
+- [x] `go build ./...` passes.
+- [x] CI runs equivalent checks.
 
 ## Session behavior
 
-- [ ] Default session is 3 rounds, 3m breathing, 30s recovery.
-- [ ] Breathing clock counts down and automatically enters retention at zero.
-- [ ] Retention clock starts at 00:00 and counts upward indefinitely.
-- [ ] User can end retention with Enter/next.
-- [ ] Recovery counts down and finalizes the round at zero.
-- [ ] Manual next-round mode waits after recovery.
-- [ ] Auto-next mode immediately starts the next breathing phase.
-- [ ] Final recovery enters a completion summary, not another round.
-- [ ] Phase timer and session-active timer are both visible.
-- [ ] Pause freezes active timers and resume does not jump forward.
-- [ ] Large/delayed Tea ticks do not create timer drift or negative countdowns.
-- [ ] Active quit opens a confirmation overlay.
-- [ ] Confirmed abandonment preserves completed rounds without counting the incomplete current round.
+- [x] Default session is 3 rounds, 3m breathing, 30s recovery.
+- [x] Breathing clock counts down and automatically enters retention at zero.
+- [x] Retention clock starts at 00:00 and counts upward indefinitely.
+- [x] User can end retention with Enter/next.
+- [x] Recovery counts down and finalizes the round at zero.
+- [x] Manual next-round mode waits after recovery.
+- [x] Auto-next mode immediately starts the next breathing phase.
+- [x] Final recovery enters a completion summary, not another round.
+- [x] Phase timer and session-active timer are both visible.
+- [x] Pause freezes active timers and resume does not jump forward.
+- [x] Large/delayed Tea ticks do not create timer drift or negative countdowns.
+- [x] Active quit opens a confirmation overlay.
+- [x] Confirmed abandonment preserves completed rounds without counting the incomplete current round.
 
 ## Data and stats
 
-- [ ] SQLite data path respects XDG conventions.
-- [ ] Sessions and each completed round are persisted reliably.
-- [ ] Per-round retention is stored.
-- [ ] Today session count is correct.
-- [ ] Today completed-round count is correct.
-- [ ] All-time sessions/rounds/active time are correct.
-- [ ] Average, best, and latest retention are correct.
-- [ ] Current and best activity streak are correct.
-- [ ] 7-day daily series fills missing dates with zero.
-- [ ] ~4-month heatmap groups by local date.
-- [ ] Abandoned sessions do not create false completed rounds/streak days.
+- [x] SQLite data path respects XDG conventions.
+- [x] Sessions and each completed round are persisted reliably.
+- [x] Per-round retention is stored.
+- [x] Today session count is correct.
+- [x] Today completed-round count is correct.
+- [x] All-time sessions/rounds/active time are correct.
+- [x] Average, best, and latest retention are correct.
+- [x] Current and best activity streak are correct.
+- [x] 7-day daily series fills missing dates with zero.
+- [x] ~4-month heatmap groups by local date.
+- [x] Abandoned sessions do not create false completed rounds/streak days.
 
 ## Stats UI
 
-- [ ] `breath stats` opens a full-screen dashboard.
-- [ ] Dashboard has Today, Retention, Streak, 7-day chart, heatmap, All-time.
-- [ ] Empty database has a friendly zero-data state.
-- [ ] Stats UI remains usable at ~80x24.
-- [ ] `q` exits and `?` exposes help.
-- [ ] `breath stats --plain` works for terminals/scripts.
+- [x] `breath stats` opens a full-screen dashboard.
+- [x] Dashboard has Today, Retention, Streak, 7-day chart, heatmap, All-time.
+- [x] Empty database has a friendly zero-data state.
+- [x] Stats UI remains usable at ~80x24.
+- [x] `q` exits and `?` exposes help.
+- [x] `breath stats --plain` works for terminals/scripts.
 
 ## Config and personalization
 
-- [ ] Config file is created with valid defaults.
-- [ ] `breath config show` and `path` work.
-- [ ] `breath config set <key> <value>` validates and persists supported settings.
-- [ ] CLI start flags override config for one run.
-- [ ] At least 7 built-in themes exist: default, catppuccin-mocha, dracula, gruvbox, nord, tokyo-night, solarized.
-- [ ] `theme list`, `theme set`, `theme preview` work.
-- [ ] Unknown theme/settings fail with actionable errors.
+- [x] Config file is created with valid defaults.
+- [x] `breath config show` and `path` work.
+- [x] `breath config set <key> <value>` validates and persists supported settings.
+- [x] CLI start flags override config for one run.
+- [x] At least 7 built-in themes exist: default, catppuccin-mocha, dracula, gruvbox, nord, tokyo-night, solarized.
+- [x] `theme list`, `theme set`, `theme preview` work.
+- [x] Unknown theme/settings fail with actionable errors.
 
 ## Notifications and robustness
 
-- [ ] Notifications/bell are configurable.
-- [ ] Unsupported notification systems fail gracefully.
-- [ ] DB/config errors are surfaced without corrupting history.
-- [ ] No network connection is required at runtime.
+- [x] Notifications/bell are configurable.
+- [x] Unsupported notification systems fail gracefully.
+- [x] DB/config errors are surfaced without corrupting history.
+- [x] No network connection is required at runtime.
 
 ## Safety and scope
 
-- [ ] README/help retains the fainting/water/driving safety warning.
-- [ ] No medical or physiological interpretation of retention times is presented.
-- [ ] No cloud, accounts, telemetry, or web service is introduced.
+- [x] README/help retains the fainting/water/driving safety warning.
+- [x] No medical or physiological interpretation of retention times is presented.
+- [x] No cloud, accounts, telemetry, or web service is introduced.

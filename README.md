@@ -1,82 +1,135 @@
 # Breathing TUI
 
-A local-first terminal application for guided Wim Hof-style breathing sessions: timed breathing, open-ended breath retention, recovery hold, round tracking, and daily statistics.
+A fast, keyboard-first terminal application for multi-round breathing practice and retention tracking: timed breathing countdown, open-ended breath retention, recovery hold, incremental session persistence, and rich statistics.
 
 > [!WARNING]
-> Breath-hold exercises can cause dizziness or loss of consciousness. Use this only in a safe seated/lying position, never in or near water, never while driving, and stop if you feel unwell. This project is a timer/tracker, not medical guidance.
+> Breath-hold exercises can cause dizziness or loss of consciousness. Practice only in a safe seated or lying position, never in or near water, never while driving or operating machinery, and stop immediately if you feel unwell. This software is a timer and habit tracker, not medical guidance or health assessment.
 
-## MVP flow
+## Features
 
-Each round has three phases:
+- **Guided 3-Phase Rounds:**
+  1. **Deep Breathing:** Countdown timer (default `03:00 → 00:00`), guiding deep rhythmic breaths. Auto-transitions to retention at zero.
+  2. **Retention:** Count-up timer (`00:00 → ...`), open-ended hold after the exhale. Stopped manually with `Enter` when you need to breathe.
+  3. **Recovery Hold:** Countdown timer (default `00:30 → 00:00`), inhale deeply and hold. Auto-completes at zero.
+- **Dual Monotonic Clocks:** Central phase clock (ASCII large digits on standard terminals, clean text on compact screens) and session-active duration clock. Pausing freezes active exercise clocks without drift or jump on resume.
+- **Incremental Local Persistence:** Sessions and completed rounds are written to local SQLite storage as soon as each round completes. Quitting mid-session preserves completed rounds without false count of the incomplete round.
+- **Statistics Dashboard:**
+  - **Today:** Sessions completed, rounds completed, active time, best retention.
+  - **Retention Metrics:** All-time average, personal best, latest retention duration.
+  - **Habit Streak:** Current and all-time best streaks based on active local practice dates.
+  - **7-Day Bar Chart:** Daily completed rounds and active exercise duration.
+  - **~4-Month Heatmap:** GitHub-style 18-week contribution grid grouped by local date.
+  - **All-Time Totals:** Completed sessions, total rounds, cumulative active duration.
+- **Command Line & Automation:** Plain text (`--plain`) and JSON (`--json`) output modes for scripting.
+- **Personalization & Themes:** 7 built-in themes (`default`, `catppuccin-mocha`, `dracula`, `gruvbox`, `nord`, `tokyo-night`, `solarized`) with live terminal preview.
+- **Safe Quit & Reset:** Confirmation overlays protect against accidental abandonment or discarding active retention hold.
+- **Notifications & Bell:** Configurable desktop notifications and terminal bell on timed phase completion and session end, with graceful no-op fallback.
+- **100% Local-First:** No accounts, telemetry, cloud dependencies, or network calls at runtime. Respects XDG base directories.
 
-1. **Deep breathing** — countdown, default `03:00 → 00:00`.
-2. **Retention** — count-up, `00:00 → ...`, stopped manually when the user needs to breathe.
-3. **Recovery hold** — inhale once and hold; countdown, default `00:30 → 00:00`.
+## Quick Start
 
-After recovery, the next round can start automatically or wait for explicit confirmation. The main timer always represents the current phase; a smaller timer tracks active exercise time across the whole session. Pausing freezes both active timers.
-
-## Starter implementation
-
-This repository is intentionally an agent-ready scaffold, not the final polished MVP. It already contains:
-
-- Go/Cobra CLI.
-- Bubble Tea + Lip Gloss full-screen timer.
-- Tested phase state machine.
-- Pause / advance / quit controls.
-- Manual or automatic round transitions.
-- SQLite persistence for sessions and round retention times.
-- Basic `breath stats` output.
-- Default and Catppuccin Mocha theme primitives.
-- Detailed product, architecture, implementation, and acceptance docs.
-- A one-run Codex `/goal` prompt in [`GOAL.md`](GOAL.md) and [`scripts/goal.txt`](scripts/goal.txt).
-
-The agent's job is to finish the dashboard, configuration UX, notifications, session-resume/quit confirmation, richer themes, tests, and release polish defined in the docs.
-
-## Quick start
+### Installation & Build
 
 ```bash
-go mod tidy
-go run . start
+git clone https://github.com/Nerver-zip/breathing-tui.git
+cd breathing-tui
+make build
+# binary is built at bin/breath
 ```
 
-Fast manual test:
+### Run a Session
 
+Start default session (3 rounds, 3m breathing, 30s recovery):
 ```bash
-go run . start --rounds 2 --breathing 5s --recovery 3s
+./bin/breath start
 ```
 
-Auto-start next rounds:
-
+Quick smoke test session with short durations:
 ```bash
-go run . start --rounds 3 --auto-next
+./bin/breath start --rounds 2 --breathing 5s --recovery 3s
 ```
 
-Show stats:
-
+Auto-advance to the next round immediately after recovery:
 ```bash
-go run . stats
+./bin/breath start --rounds 3 --auto-next
 ```
 
-Configuration is created at `~/.config/breath/config.yaml`. Data is stored under the user's XDG data directory (normally `~/.local/share/breath/breath.db` on Linux).
+### View Statistics
 
-## Controls
+Open the interactive full-screen TUI dashboard:
+```bash
+./bin/breath stats
+```
 
-| Key | Action |
-|---|---|
-| `Space` / `p` | Pause / resume |
-| `Enter` / `n` | Advance phase / start next round |
-| `q` / `Ctrl+C` | Quit |
+Output for shell scripts:
+```bash
+./bin/breath stats --plain
+./bin/breath stats --json
+```
 
-The final MVP must add safe quit confirmation while a session is active; see `docs/ACCEPTANCE.md`.
+### Configuration
 
-## Agent execution
+Inspect current effective settings and config path:
+```bash
+./bin/breath config show
+./bin/breath config path
+```
 
-Open the repository in Codex and paste the command from `scripts/goal.txt`. The goal is explicitly designed for a single autonomous run with validation before completion.
+Update persistent configuration:
+```bash
+./bin/breath config set rounds 4
+./bin/breath config set breathing 2m30s
+./bin/breath config set recovery 30s
+./bin/breath config set auto_next_round true
+./bin/breath config set theme catppuccin-mocha
+./bin/breath config set notifications true
+./bin/breath config set bell true
+```
 
-## Inspiration
+Default config file location:
+- Linux: `~/.config/breath/config.yaml` (respects `$XDG_CONFIG_HOME`)
+- Database: `~/.local/share/breath/breath.db` (respects `$XDG_DATA_HOME`)
 
-The UI/product architecture is inspired by [Bahaaio/pomo](https://github.com/Bahaaio/pomo): a Go terminal Pomodoro app using Bubble Tea, Lip Gloss, Cobra/Viper, SQLite, configurable themes, and statistics dashboards. This repository does **not** copy its business logic; the timer state machine and data model are specific to breathing rounds.
+### Themes
 
-## Status
+List available themes:
+```bash
+./bin/breath theme list
+```
 
-**Scaffold / pre-MVP.** The source compiles and core state transitions are tested. `GOAL.md` defines the finished MVP.
+Preview a theme with palette swatches and sample components:
+```bash
+./bin/breath theme preview dracula
+./bin/breath theme preview nord
+```
+
+Set active theme:
+```bash
+./bin/breath theme set tokyo-night
+```
+
+## Keyboard Controls
+
+| Key | Context | Action |
+|---|---|---|
+| `Space` / `p` | Active Session | Pause / resume exercise clocks |
+| `Enter` / `n` | Active Session | Advance phase / confirm next round |
+| `r` | Active Session | Restart current phase (confirms if retention > 0) |
+| `?` | Any view | Toggle help & safety overlay |
+| `q` / `Esc` | Active Session | Request quit (confirms before abandoning) |
+| `Enter` / `q` | Summary Screen | Exit session |
+| `s` | Summary Screen | Open full statistics dashboard |
+| `q` / `Esc` | Stats / Help | Exit dashboard or dismiss overlay |
+| `y` / `n` | Confirmation Modal | Confirm (`y`) or cancel (`n` / `Esc`) |
+
+## Verification & Tests
+
+Run the complete test suite and code quality gate:
+```bash
+make check
+```
+This runs formatting checks (`gofmt`), unit and integration tests (`go test ./...`), vet analysis (`go vet ./...`), and compilation (`go build`).
+
+## Safety Disclaimer
+
+This application is purely a timer and session tracker. It does not provide medical guidance, diagnoses, or physiological fitness scores. Never practice breath retention in water, while operating a vehicle, or while standing. Always consult a healthcare professional before beginning vigorous breathwork practices.
