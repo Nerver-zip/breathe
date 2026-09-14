@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Nerver-zip/breathing-tui/internal/storage"
@@ -104,6 +105,7 @@ func (m StatsModel) View() string {
 	titleStyle := lipgloss.NewStyle().Foreground(m.theme.Accent).Bold(true)
 	mutedStyle := lipgloss.NewStyle().Foreground(m.theme.Muted)
 	primaryStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
+	secondaryStyle := lipgloss.NewStyle().Foreground(m.theme.Secondary)
 	goodStyle := lipgloss.NewStyle().Foreground(m.theme.Good).Bold(true)
 
 	// Zero data state
@@ -114,14 +116,14 @@ func (m StatsModel) View() string {
 			Padding(2, 4).
 			Render(lipgloss.JoinVertical(
 				lipgloss.Center,
-				titleStyle.Render("BREATHING TUI — STATISTICS"),
+				titleStyle.Render("Breathing statistics"),
 				"",
 				primaryStyle.Render("No breathing practice recorded yet."),
 				mutedStyle.Render("Start your first session with:"),
 				"",
 				goodStyle.Render("breath start"),
 				"",
-				mutedStyle.Render("[?] help  [q] quit"),
+				mutedStyle.Render("[?] help  •  [q] quit"),
 			))
 		if m.width > 0 && m.height > 0 {
 			return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
@@ -129,64 +131,145 @@ func (m StatsModel) View() string {
 		return box
 	}
 
-	// Card builder helper
-	cardStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(m.theme.Muted).
-		Padding(0, 1)
+	header := titleStyle.Render("Breathing statistics")
 
-	header := titleStyle.Render("BREATHING TUI — STATISTICS DASHBOARD")
+	// Top Section: Progress bar & Streak
+	barWidth := 36
+	activeMS := m.report.TotalActive.Milliseconds()
+	retMS := m.report.TotalRetention.Milliseconds()
+	if retMS == 0 && m.report.TotalRounds > 0 {
+		retMS = m.report.AverageRetention.Milliseconds() * int64(m.report.TotalRounds)
+	}
 
-	// Today Card
-	todayContent := fmt.Sprintf("%s  %s\n%s  %s\n%s  %s\n%s  %s",
-		mutedStyle.Render("Sessions:"), primaryStyle.Bold(true).Render(fmt.Sprintf("%d", m.report.TodaySessions)),
-		mutedStyle.Render("Rounds:  "), primaryStyle.Bold(true).Render(fmt.Sprintf("%d", m.report.TodayRounds)),
-		mutedStyle.Render("Active:  "), primaryStyle.Bold(true).Render(storage.FormatDuration(m.report.TodayActive)),
-		mutedStyle.Render("Best:    "), goodStyle.Render(storage.FormatDuration(m.report.TodayBestRetention)),
+	var activePct, retPct int
+	if activeMS > 0 {
+		retPct = int(float64(retMS) / float64(activeMS) * 100)
+		if retPct > 100 {
+			retPct = 100
+		}
+		activePct = 100 - retPct
+		if retPct == 0 && retMS > 0 {
+			retPct = 1
+			activePct = 99
+		}
+	} else {
+		activePct = 100
+		retPct = 0
+	}
+
+	activeLabel := formatCompactDuration(m.report.TotalActive)
+	retLabel := formatCompactDuration(time.Duration(retMS) * time.Millisecond)
+
+	padTop := barWidth - len(activeLabel) - len(retLabel)
+	if padTop < 1 {
+		padTop = 1
+	}
+	topLabels := primaryStyle.Bold(true).Render(activeLabel) + strings.Repeat(" ", padTop) + secondaryStyle.Bold(true).Render(retLabel)
+
+	filledLen := int(float64(activePct) / 100.0 * float64(barWidth))
+	if filledLen > barWidth {
+		filledLen = barWidth
+	}
+	shadedLen := barWidth - filledLen
+
+	filledBar := lipgloss.NewStyle().Foreground(m.theme.Accent).Render(strings.Repeat("█", filledLen))
+	shadedBar := lipgloss.NewStyle().Foreground(lipgloss.Color("#35374C")).Render(strings.Repeat("░", shadedLen))
+	barWidget := filledBar + shadedBar
+
+	activePctStr := fmt.Sprintf("%d%%", activePct)
+	retPctStr := fmt.Sprintf("%d%%", retPct)
+	padBottom := barWidth - len(activePctStr) - len(retPctStr)
+	if padBottom < 1 {
+		padBottom = 1
+	}
+	bottomLabels := mutedStyle.Render(activePctStr) + strings.Repeat(" ", padBottom) + mutedStyle.Render(retPctStr)
+
+	streakText := fmt.Sprintf("⚡ streak %dd • best %dd", m.report.CurrentStreak, m.report.BestStreak)
+	streakWidget := lipgloss.NewStyle().Foreground(m.theme.Primary).Render(streakText)
+
+	topSection := lipgloss.JoinVertical(
+		lipgloss.Center,
+		topLabels,
+		barWidget,
+		bottomLabels,
+		"",
+		streakWidget,
 	)
-	todayCard := cardStyle.Width(17).Render(lipgloss.JoinVertical(lipgloss.Left, primaryStyle.Bold(true).Render("TODAY"), todayContent))
 
-	// Retention Card
-	retContent := fmt.Sprintf("%s  %s\n%s  %s\n%s  %s",
-		mutedStyle.Render("Average:"), primaryStyle.Bold(true).Render(storage.FormatDuration(m.report.AverageRetention)),
-		mutedStyle.Render("Best:   "), goodStyle.Render(storage.FormatDuration(m.report.BestRetention)),
-		mutedStyle.Render("Latest: "), primaryStyle.Bold(true).Render(storage.FormatDuration(m.report.LatestRetention)),
+	// Middle Section: Open 3-column summary
+	colHeaderStyle := primaryStyle.Bold(true)
+	renderRow := func(label, val string, valStyle lipgloss.Style) string {
+		return mutedStyle.Render(fmt.Sprintf("%-11s", label)) + " " + valStyle.Render(fmt.Sprintf("%8s", val))
+	}
+
+	col1 := lipgloss.JoinVertical(
+		lipgloss.Left,
+		colHeaderStyle.Render("       TODAY        "),
+		renderRow("Rounds", fmt.Sprintf("%d", m.report.TodayRounds), primaryStyle.Bold(true)),
+		renderRow("Active", storage.FormatDuration(m.report.TodayActive), primaryStyle.Bold(true)),
+		renderRow("Sessions", fmt.Sprintf("%d", m.report.TodaySessions), primaryStyle.Bold(true)),
+		renderRow("Best Hold", storage.FormatDuration(m.report.TodayBestRetention), goodStyle),
 	)
-	retCard := cardStyle.Width(17).Render(lipgloss.JoinVertical(lipgloss.Left, primaryStyle.Bold(true).Render("RETENTION"), retContent))
 
-	// Streak Card
-	streakContent := fmt.Sprintf("%s  %s\n%s  %s",
-		mutedStyle.Render("Current:"), goodStyle.Render(fmt.Sprintf("%d days", m.report.CurrentStreak)),
-		mutedStyle.Render("Best:   "), primaryStyle.Bold(true).Render(fmt.Sprintf("%d days", m.report.BestStreak)),
+	col2 := lipgloss.JoinVertical(
+		lipgloss.Left,
+		colHeaderStyle.Render("     RETENTION      "),
+		renderRow("Average", storage.FormatDuration(m.report.AverageRetention), primaryStyle.Bold(true)),
+		renderRow("Best", storage.FormatDuration(m.report.BestRetention), goodStyle),
+		renderRow("Latest", storage.FormatDuration(m.report.LatestRetention), primaryStyle.Bold(true)),
+		renderRow("", "", mutedStyle),
 	)
-	streakCard := cardStyle.Width(17).Render(lipgloss.JoinVertical(lipgloss.Left, primaryStyle.Bold(true).Render("STREAK"), streakContent))
 
-	// All Time Card
-	allContent := fmt.Sprintf("%s  %s\n%s  %s\n%s  %s",
-		mutedStyle.Render("Sessions:"), primaryStyle.Bold(true).Render(fmt.Sprintf("%d", m.report.TotalSessions)),
-		mutedStyle.Render("Rounds:  "), primaryStyle.Bold(true).Render(fmt.Sprintf("%d", m.report.TotalRounds)),
-		mutedStyle.Render("Active:  "), primaryStyle.Bold(true).Render(storage.FormatDuration(m.report.TotalActive)),
+	col3 := lipgloss.JoinVertical(
+		lipgloss.Left,
+		colHeaderStyle.Render("      ALL TIME      "),
+		renderRow("Rounds", fmt.Sprintf("%d", m.report.TotalRounds), primaryStyle.Bold(true)),
+		renderRow("Active", storage.FormatDuration(m.report.TotalActive), primaryStyle.Bold(true)),
+		renderRow("Sessions", fmt.Sprintf("%d", m.report.TotalSessions), primaryStyle.Bold(true)),
+		renderRow("", "", mutedStyle),
 	)
-	allCard := cardStyle.Width(17).Render(lipgloss.JoinVertical(lipgloss.Left, primaryStyle.Bold(true).Render("ALL TIME"), allContent))
 
-	// Row 1: Summary Cards
-	row1 := lipgloss.JoinHorizontal(lipgloss.Top, todayCard, " ", retCard, " ", streakCard, " ", allCard)
+	summaryRow := lipgloss.JoinHorizontal(lipgloss.Top, col1, "      ", col2, "      ", col3)
 
-	// Row 2: Charts
+	// Bottom Section: Charts
 	chart7Day := RenderBarChart7Days(m.report.Recent7Days, m.theme, 32)
-	chartCard := cardStyle.Width(35).Render(lipgloss.JoinVertical(lipgloss.Left, primaryStyle.Bold(true).Render("7-DAY ACTIVITY (ROUNDS)"), chart7Day))
-
 	heatmap := RenderHeatmap(m.report.HeatmapDays, m.theme)
-	heatCard := cardStyle.Width(41).Render(lipgloss.JoinVertical(lipgloss.Left, primaryStyle.Bold(true).Render("ACTIVITY HEATMAP (~4 MONTHS)"), heatmap))
+	chartsRow := lipgloss.JoinHorizontal(lipgloss.Top, chart7Day, "    ", heatmap)
 
-	row2 := lipgloss.JoinHorizontal(lipgloss.Top, chartCard, " ", heatCard)
+	footer := mutedStyle.Render("[?] help  •  [q / esc] quit")
 
-	footer := mutedStyle.Render("[?] help overlay  [q / esc] quit")
-
-	body := lipgloss.JoinVertical(lipgloss.Center, header, "", row1, "", row2, "", footer)
+	body := lipgloss.JoinVertical(
+		lipgloss.Center,
+		header,
+		"",
+		topSection,
+		"",
+		summaryRow,
+		"",
+		chartsRow,
+		"",
+		footer,
+	)
 
 	if m.width <= 0 || m.height <= 0 {
 		return body
 	}
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, body)
+}
+
+func formatCompactDuration(d time.Duration) string {
+	if d <= 0 {
+		return "0s"
+	}
+	s := int(d.Round(time.Second).Seconds())
+	h := s / 3600
+	m := (s % 3600) / 60
+	sec := s % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh%dm%ds", h, m, sec)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm%ds", m, sec)
+	}
+	return fmt.Sprintf("%ds", sec)
 }

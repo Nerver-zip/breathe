@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// RenderBarChart7Days renders a responsive 7-day vertical bar chart.
+// RenderBarChart7Days renders a clean open 7-day vertical bar chart matching pomo.
 func RenderBarChart7Days(days []storage.DayActivity, th theme.Theme, maxWidth int) string {
 	if len(days) == 0 {
 		return ""
@@ -26,160 +26,261 @@ func RenderBarChart7Days(days []storage.DayActivity, th theme.Theme, maxWidth in
 		maxRounds = 4
 	}
 
-	chartHeight := 5
-	var lines []string
-
 	labelStyle := lipgloss.NewStyle().Foreground(th.Muted)
 	barStyle := lipgloss.NewStyle().Foreground(th.Accent).Bold(true)
 	activeDayStyle := lipgloss.NewStyle().Foreground(th.Good).Bold(true)
 	axisStyle := lipgloss.NewStyle().Foreground(th.Muted)
 
-	for row := chartHeight; row >= 1; row-- {
-		threshold := int(float64(row) / float64(chartHeight) * float64(maxRounds))
+	var lines []string
+
+	// Lines 1 & 2: blank lines to vertically align with Heatmap's Month Header & Divider lines
+	lines = append(lines, "")
+	lines = append(lines, "")
+
+	// Rows 4 to 1: Data rows
+	for row := 4; row >= 1; row-- {
+		threshold := int(float64(row) / 4.0 * float64(maxRounds))
 		var b strings.Builder
-		fmt.Fprintf(&b, "%2d ┤ ", threshold)
-		for _, d := range days {
-			barChar := "  "
+		fmt.Fprintf(&b, "%2d │", threshold)
+		for i, d := range days {
 			if d.Rounds >= threshold {
-				barChar = "██"
+				b.WriteString(barStyle.Render(" ██"))
 			} else if d.Rounds > 0 && row == 1 {
-				barChar = "▄▄"
-			}
-			if d.Rounds > 0 {
-				b.WriteString(barStyle.Render(barChar) + "  ")
+				b.WriteString(barStyle.Render(" ▄▄"))
 			} else {
-				b.WriteString(axisStyle.Render("··") + "  ")
+				b.WriteString("   ")
+			}
+			if i < len(days)-1 {
+				b.WriteString(" ")
+			} else {
+				b.WriteString(" ")
 			}
 		}
 		lines = append(lines, b.String())
 	}
 
-	// Axis line
+	// Line 7: Axis line ( 0 └───┬───┬───┬───┬───┬───┬────)
 	var axis strings.Builder
-	axis.WriteString("   └─")
-	for range days {
-		axis.WriteString("────")
+	axis.WriteString(" 0 └")
+	for i := range days {
+		axis.WriteString("───")
+		if i < len(days)-1 {
+			axis.WriteString("┬")
+		} else {
+			axis.WriteString("─")
+		}
 	}
 	lines = append(lines, axisStyle.Render(axis.String()))
 
-	// Day labels (Mon, Tue, ...)
+	// Line 8: Day labels (Mon Tue Wed...)
 	var dayLabels strings.Builder
-	dayLabels.WriteString("     ")
-	for _, d := range days {
-		dayLabels.WriteString(labelStyle.Render(fmt.Sprintf("%-3s ", d.DayLabel)))
+	dayLabels.WriteString("    ")
+	for i, d := range days {
+		dayLabels.WriteString(labelStyle.Render(fmt.Sprintf("%-3s", d.DayLabel)))
+		if i < len(days)-1 {
+			dayLabels.WriteString(" ")
+		} else {
+			dayLabels.WriteString(" ")
+		}
 	}
 	lines = append(lines, dayLabels.String())
 
-	// Rounds count line
+	// Line 9: Rounds count line
 	var countLine strings.Builder
-	countLine.WriteString("     ")
-	for _, d := range days {
+	countLine.WriteString("    ")
+	for i, d := range days {
 		if d.Rounds > 0 {
-			countLine.WriteString(activeDayStyle.Render(fmt.Sprintf("%-3d ", d.Rounds)))
+			countLine.WriteString(activeDayStyle.Render(fmt.Sprintf("%3d", d.Rounds)))
 		} else {
-			countLine.WriteString(labelStyle.Render(" 0  "))
+			countLine.WriteString(labelStyle.Render("  0"))
+		}
+		if i < len(days)-1 {
+			countLine.WriteString(" ")
+		} else {
+			countLine.WriteString(" ")
 		}
 	}
 	lines = append(lines, countLine.String())
 
+	// Line 10: blank line to align with Heatmap's Legend line
+	lines = append(lines, "")
+
 	return strings.Join(lines, "\n")
 }
 
-// RenderHeatmap renders a GitHub-style ~4-month (18-week) activity heatmap.
+// RenderHeatmap renders a calendar-grouped ~4-month activity heatmap matching pomo.
 func RenderHeatmap(heatmapDays []storage.HeatmapDay, th theme.Theme) string {
 	if len(heatmapDays) == 0 {
 		return ""
 	}
 
-	// 18 weeks x 7 days
-	weeks := 18
-	grid := make([][]storage.HeatmapDay, 7)
-	for i := range grid {
-		grid[i] = make([]storage.HeatmapDay, weeks)
+	roundsMap := make(map[string]int, len(heatmapDays))
+	for _, d := range heatmapDays {
+		roundsMap[d.Date] = d.Rounds
 	}
 
-	// Days are sequential ending today. Map them into week columns.
-	// We want column 0 to be the oldest week, column 17 to be the current week.
-	for idx, d := range heatmapDays {
-		if idx >= weeks*7 {
-			break
-		}
-		col := idx / 7
-		row := idx % 7
-		if col < weeks && row < 7 {
-			grid[row][col] = d
+	refDate := time.Now()
+	if len(heatmapDays) > 0 {
+		if t, err := time.ParseInLocation("2006-01-02", heatmapDays[len(heatmapDays)-1].Date, time.Local); err == nil {
+			refDate = t
 		}
 	}
+	refDate = time.Date(refDate.Year(), refDate.Month(), refDate.Day(), 0, 0, 0, 0, time.Local)
 
-	dayLabels := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+	// 4 calendar months: 3 months ago up to current month
+	months := make([]time.Time, 4)
+	for i := 0; i < 4; i++ {
+		months[i] = time.Date(refDate.Year(), refDate.Month()-time.Month(3-i), 1, 0, 0, 0, 0, refDate.Location())
+	}
+
 	labelStyle := lipgloss.NewStyle().Foreground(th.Muted)
+	cellZero := lipgloss.NewStyle().Foreground(lipgloss.Color("#35374C")).Render("■ ")
+	cellL1 := lipgloss.NewStyle().Foreground(th.Accent).Render("■ ")
+	cellL2 := lipgloss.NewStyle().Foreground(th.Secondary).Render("■ ")
+	cellL3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#A78BFA")).Render("■ ")
+	cellL4 := lipgloss.NewStyle().Foreground(lipgloss.Color("#EE6FF8")).Render("■ ")
 
-	mutedDot := lipgloss.NewStyle().Foreground(th.Muted).Render("·")
-	lowBlock := lipgloss.NewStyle().Foreground(th.Good).Render("░")
-	medBlock := lipgloss.NewStyle().Foreground(th.Good).Bold(true).Render("▒")
-	highBlock := lipgloss.NewStyle().Foreground(th.Accent).Bold(true).Render("▓")
-	maxBlock := lipgloss.NewStyle().Foreground(th.Primary).Bold(true).Render("█")
+	renderCell := func(rounds int) string {
+		switch {
+		case rounds == 0:
+			return cellZero
+		case rounds <= 2:
+			return cellL1
+		case rounds <= 4:
+			return cellL2
+		case rounds <= 6:
+			return cellL3
+		default:
+			return cellL4
+		}
+	}
 
+	type monthGrid struct {
+		name   string
+		cols   [][]string // [colIndex][rowIndex 0..6 (Sun..Sat)]
+		width  int
+		header string
+	}
+
+	var mGrids []monthGrid
+	for mIdx, mStart := range months {
+		nextM := time.Date(mStart.Year(), mStart.Month()+1, 1, 0, 0, 0, 0, mStart.Location())
+		lastDayOfM := nextM.AddDate(0, 0, -1).Day()
+
+		maxDay := lastDayOfM
+		if mIdx == 3 { // current month: only render up to today
+			if refDate.Day() < maxDay {
+				maxDay = refDate.Day()
+			}
+		}
+
+		startWd := int(mStart.Weekday()) // 0=Sun, 6=Sat
+		var cols [][]string
+		currentCol := make([]string, 7)
+		for r := 0; r < 7; r++ {
+			currentCol[r] = "  "
+		}
+		row := startWd
+
+		for day := 1; day <= maxDay; day++ {
+			dStr := fmt.Sprintf("%04d-%02d-%02d", mStart.Year(), mStart.Month(), day)
+			currentCol[row] = renderCell(roundsMap[dStr])
+			row++
+			if row > 6 {
+				cols = append(cols, currentCol)
+				currentCol = make([]string, 7)
+				for r := 0; r < 7; r++ {
+					currentCol[r] = "  "
+				}
+				row = 0
+			}
+		}
+		if row > 0 {
+			cols = append(cols, currentCol)
+		}
+
+		w := len(cols) * 2
+		mName := mStart.Format("Jan")
+		pad := w - len(mName)
+		if pad < 0 {
+			pad = 0
+		}
+		leftPad := pad / 2
+		rightPad := pad - leftPad
+		hStr := strings.Repeat(" ", leftPad) + mName + strings.Repeat(" ", rightPad)
+
+		mGrids = append(mGrids, monthGrid{
+			name:   mName,
+			cols:   cols,
+			width:  w,
+			header: hStr,
+		})
+	}
+
+	prefixLen := 6 // "Sun │ " is 6 chars
 	var lines []string
 
-	// Header row: month labels
+	// Line 1: Month labels with calendar icon
 	var monthHeader strings.Builder
-	monthHeader.WriteString("    ")
-	var lastMonth time.Month
-	for col := 0; col < weeks; col++ {
-		d := grid[0][col]
-		if d.Date != "" {
-			t, err := time.Parse("2006-01-02", d.Date)
-			if err == nil && t.Month() != lastMonth {
-				monthHeader.WriteString(labelStyle.Render(t.Format("Jan ")))
-				lastMonth = t.Month()
-				continue
-			}
+	monthHeader.WriteString("🗓️    ")
+	for i, mg := range mGrids {
+		if i > 0 {
+			monthHeader.WriteString("  ")
 		}
-		if monthHeader.Len() < (col*2 + 4) {
-			monthHeader.WriteString(" ")
-		}
+		monthHeader.WriteString(mg.header)
 	}
-	lines = append(lines, monthHeader.String())
+	lines = append(lines, labelStyle.Render(monthHeader.String()))
 
-	for row := 0; row < 7; row++ {
-		var b strings.Builder
-		// Show labels for Mon, Wed, Fri
-		if row == 1 || row == 3 || row == 5 {
-			fmt.Fprintf(&b, "%s ", labelStyle.Render(dayLabels[row]))
-		} else {
-			b.WriteString("    ")
+	// Calculate total visible width
+	totalWidth := prefixLen
+	for i, mg := range mGrids {
+		if i > 0 {
+			totalWidth += 2
 		}
-
-		for col := 0; col < weeks; col++ {
-			day := grid[row][col]
-			var cell string
-			switch {
-			case day.Rounds == 0:
-				cell = mutedDot
-			case day.Rounds <= 2:
-				cell = lowBlock
-			case day.Rounds <= 4:
-				cell = medBlock
-			case day.Rounds <= 6:
-				cell = highBlock
-			default:
-				cell = maxBlock
-			}
-			b.WriteString(cell + " ")
-		}
-		lines = append(lines, b.String())
+		totalWidth += mg.width
 	}
 
-	// Legend
-	var legend strings.Builder
-	legend.WriteString("    Less ")
-	legend.WriteString(mutedDot + " ")
-	legend.WriteString(lowBlock + " ")
-	legend.WriteString(medBlock + " ")
-	legend.WriteString(highBlock + " ")
-	legend.WriteString(maxBlock + " More")
-	lines = append(lines, labelStyle.Render(legend.String()))
+	// Line 2: Divider line
+	lines = append(lines, labelStyle.Render(strings.Repeat("─", totalWidth)))
+
+	// Lines 3 to 9: 7 Day rows (Sun to Sat)
+	dayNames := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+	for r := 0; r < 7; r++ {
+		var rowBuf strings.Builder
+		rowBuf.WriteString(labelStyle.Render(fmt.Sprintf("%s │ ", dayNames[r])))
+		for i, mg := range mGrids {
+			if i > 0 {
+				rowBuf.WriteString("  ")
+			}
+			for _, col := range mg.cols {
+				rowBuf.WriteString(col[r])
+			}
+		}
+		lines = append(lines, rowBuf.String())
+	}
+
+	// Line 10: Legend (Less ■ ■ ■ ■ ■ More)
+	legendBlockZero := lipgloss.NewStyle().Foreground(lipgloss.Color("#35374C")).Render("■")
+	legendBlock1 := lipgloss.NewStyle().Foreground(th.Accent).Render("■")
+	legendBlock2 := lipgloss.NewStyle().Foreground(th.Secondary).Render("■")
+	legendBlock3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#A78BFA")).Render("■")
+	legendBlock4 := lipgloss.NewStyle().Foreground(lipgloss.Color("#EE6FF8")).Render("■")
+
+	legendContent := fmt.Sprintf("%s %s %s %s %s %s %s",
+		labelStyle.Render("Less"),
+		legendBlockZero,
+		legendBlock1,
+		legendBlock2,
+		legendBlock3,
+		legendBlock4,
+		labelStyle.Render("More"),
+	)
+	legendVisibleWidth := 19 // "Less ■ ■ ■ ■ ■ More"
+	padLegend := totalWidth - legendVisibleWidth
+	if padLegend < 0 {
+		padLegend = 0
+	}
+	lines = append(lines, strings.Repeat(" ", padLegend)+legendContent)
 
 	return strings.Join(lines, "\n")
 }

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -185,6 +186,63 @@ func TestStatsModelView(t *testing.T) {
 	emptyView := sm.View()
 	if !strings.Contains(emptyView, "No breathing practice recorded yet") {
 		t.Fatalf("expected zero-data view, got:\n%s", emptyView)
+	}
+}
+
+func TestStatsModelViewWithData(t *testing.T) {
+	dir := t.TempDir()
+	store, err := storage.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("storage.Open: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+	sessID, err := store.CreateSession(ctx, 3, now)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := store.SaveRound(ctx, sessID, session.RoundResult{
+		Index:     1,
+		Breathing: 3 * time.Minute,
+		Retention: 45 * time.Second,
+		Recovery:  15 * time.Second,
+	}); err != nil {
+		t.Fatalf("SaveRound: %v", err)
+	}
+	if err := store.EndSession(ctx, sessID, now.Add(4*time.Minute), 4*time.Minute, 4*time.Minute, "completed"); err != nil {
+		t.Fatalf("EndSession: %v", err)
+	}
+
+	sm := NewStatsModel(store, "pomo")
+	sm.width = 80
+	sm.height = 24
+
+	cmd := sm.Init()
+	msg := cmd()
+	updated, _ := sm.Update(msg)
+	sm = updated.(StatsModel)
+
+	view := sm.View()
+
+	if !strings.Contains(view, "Breathing statistics") {
+		t.Fatalf("expected 'Breathing statistics' header, got:\n%s", view)
+	}
+	if !strings.Contains(view, "streak") {
+		t.Fatalf("expected streak widget, got:\n%s", view)
+	}
+	if !strings.Contains(view, "TODAY") || !strings.Contains(view, "RETENTION") || !strings.Contains(view, "ALL TIME") {
+		t.Fatalf("expected summary columns TODAY, RETENTION, ALL TIME, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Sun │") || !strings.Contains(view, "Mon │") {
+		t.Fatalf("expected heatmap weekday rows, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Less") || !strings.Contains(view, "More") {
+		t.Fatalf("expected heatmap legend, got:\n%s", view)
+	}
+	if !strings.Contains(view, "0 └───") {
+		t.Fatalf("expected bar chart axis, got:\n%s", view)
 	}
 }
 

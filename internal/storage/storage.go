@@ -76,6 +76,7 @@ type StatsReport struct {
 	AverageRetention time.Duration `json:"average_retention"`
 	BestRetention    time.Duration `json:"best_retention"`
 	LatestRetention  time.Duration `json:"latest_retention"`
+	TotalRetention   time.Duration `json:"total_retention"`
 
 	// Streak
 	CurrentStreak int `json:"current_streak"`
@@ -97,6 +98,7 @@ type Summary struct {
 	TotalActive        time.Duration
 	AverageRetention   time.Duration
 	BestRetention      time.Duration
+	TotalRetention     time.Duration
 	TodaySessions      int
 	TodayRounds        int
 	TodayBestRetention time.Duration
@@ -284,6 +286,7 @@ func (s *Store) Summary(ctx context.Context) (Summary, error) {
 		TotalActive:        report.TotalActive,
 		AverageRetention:   report.AverageRetention,
 		BestRetention:      report.BestRetention,
+		TotalRetention:     report.TotalRetention,
 		TodaySessions:      report.TodaySessions,
 		TodayRounds:        report.TodayRounds,
 		TodayBestRetention: report.TodayBestRetention,
@@ -309,14 +312,16 @@ func (s *Store) GetStats(ctx context.Context, refTime time.Time) (StatsReport, e
 	out.TotalActive = time.Duration(totalActiveMS) * time.Millisecond
 
 	// Retention metrics
-	row = s.db.QueryRowxContext(ctx, `SELECT COALESCE(AVG(retention_ms), 0), COALESCE(MAX(retention_ms), 0) FROM rounds`)
+	row = s.db.QueryRowxContext(ctx, `SELECT COALESCE(AVG(retention_ms), 0), COALESCE(MAX(retention_ms), 0), COALESCE(SUM(retention_ms), 0) FROM rounds`)
 	var avgMS float64
 	var bestMS int64
-	if err := row.Scan(&avgMS, &bestMS); err != nil {
+	var totalRetMS int64
+	if err := row.Scan(&avgMS, &bestMS, &totalRetMS); err != nil {
 		return out, err
 	}
 	out.AverageRetention = time.Duration(avgMS * float64(time.Millisecond))
 	out.BestRetention = time.Duration(bestMS) * time.Millisecond
+	out.TotalRetention = time.Duration(totalRetMS) * time.Millisecond
 
 	var latestMS int64
 	err := s.db.QueryRowxContext(ctx, `SELECT retention_ms FROM rounds ORDER BY id DESC LIMIT 1`).Scan(&latestMS)
@@ -395,9 +400,14 @@ func (s *Store) GetStats(ctx context.Context, refTime time.Time) (StatsReport, e
 		}
 	}
 
-	// ~4-month heatmap: 18 weeks (126 days) ending on today
+	// ~4-month heatmap: cover 4 calendar months (3 months ago to today) and at least 18 weeks
+	startMonth := time.Date(localRef.Year(), localRef.Month()-3, 1, 0, 0, 0, 0, localRef.Location())
 	totalHeatmapDays := 18 * 7
-	heatmapStart := localRef.AddDate(0, 0, -(totalHeatmapDays - 1)).Format("2006-01-02")
+	minStart := localRef.AddDate(0, 0, -(totalHeatmapDays - 1))
+	if startMonth.Before(minStart) {
+		minStart = startMonth
+	}
+	heatmapStart := minStart.Format("2006-01-02")
 	heatRows, err := s.db.QueryxContext(ctx, `
 		SELECT local_date, COALESCE(SUM(completed_rounds), 0) AS rounds
 		FROM sessions
@@ -416,9 +426,13 @@ func (s *Store) GetStats(ctx context.Context, refTime time.Time) (StatsReport, e
 	}
 	heatRows.Close()
 
-	out.HeatmapDays = make([]HeatmapDay, totalHeatmapDays)
-	for i := 0; i < totalHeatmapDays; i++ {
-		cur := localRef.AddDate(0, 0, -(totalHeatmapDays - 1 - i))
+	daysCount := int(localRef.Sub(minStart).Hours()/24) + 1
+	if daysCount < totalHeatmapDays {
+		daysCount = totalHeatmapDays
+	}
+	out.HeatmapDays = make([]HeatmapDay, daysCount)
+	for i := 0; i < daysCount; i++ {
+		cur := minStart.AddDate(0, 0, i)
 		curStr := cur.Format("2006-01-02")
 		out.HeatmapDays[i] = HeatmapDay{
 			Date:   curStr,
