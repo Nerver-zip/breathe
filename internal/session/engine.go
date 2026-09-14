@@ -26,6 +26,20 @@ type RoundResult struct {
 	Recovery  time.Duration
 }
 
+type EventType string
+
+const (
+	EventBreathingComplete EventType = "breathing_complete"
+	EventRecoveryComplete  EventType = "recovery_complete"
+	EventSessionComplete   EventType = "session_complete"
+)
+
+type TransitionEvent struct {
+	Type  EventType
+	Round int
+	Auto  bool
+}
+
 type Engine struct {
 	settings       Settings
 	phase          Phase
@@ -35,6 +49,7 @@ type Engine struct {
 	paused         bool
 	results        []RoundResult
 	current        RoundResult
+	events         []TransitionEvent
 }
 
 func New(settings Settings) *Engine {
@@ -68,7 +83,7 @@ func (e *Engine) Tick(delta time.Duration) {
 		e.sessionElapsed += step
 		e.current.Breathing += step
 		if e.phaseElapsed >= e.settings.Breathing {
-			e.toRetention()
+			e.toRetention(true)
 			if delta > step {
 				e.Tick(delta - step)
 			}
@@ -84,7 +99,7 @@ func (e *Engine) Tick(delta time.Duration) {
 		e.sessionElapsed += step
 		e.current.Recovery += step
 		if e.phaseElapsed >= e.settings.Recovery {
-			e.finishRound()
+			e.finishRound(true)
 			if delta > step && e.phase == PhaseBreathing {
 				e.Tick(delta - step)
 			}
@@ -98,12 +113,12 @@ func (e *Engine) Advance() {
 	}
 	switch e.phase {
 	case PhaseBreathing:
-		e.toRetention()
+		e.toRetention(false)
 	case PhaseRetention:
 		e.phase = PhaseRecovery
 		e.phaseElapsed = 0
 	case PhaseRecovery:
-		e.finishRound()
+		e.finishRound(false)
 	case PhaseRoundReady:
 		e.startNextRound()
 	}
@@ -116,16 +131,76 @@ func (e *Engine) TogglePause() {
 	e.paused = !e.paused
 }
 
-func (e *Engine) toRetention() {
-	e.phase = PhaseRetention
-	e.phaseElapsed = 0
+func (e *Engine) SetPaused(paused bool) {
+	if e.phase == PhaseComplete || e.phase == PhaseRoundReady {
+		return
+	}
+	e.paused = paused
 }
 
-func (e *Engine) finishRound() {
+func (e *Engine) ResetCurrentPhase() bool {
+	if e.phase == PhaseComplete || e.phase == PhaseRoundReady {
+		return false
+	}
+	switch e.phase {
+	case PhaseBreathing:
+		e.sessionElapsed = clampNonNegative(e.sessionElapsed - e.current.Breathing)
+		e.current.Breathing = 0
+		e.phaseElapsed = 0
+		return true
+	case PhaseRetention:
+		e.sessionElapsed = clampNonNegative(e.sessionElapsed - e.current.Retention)
+		e.current.Retention = 0
+		e.phaseElapsed = 0
+		return true
+	case PhaseRecovery:
+		e.sessionElapsed = clampNonNegative(e.sessionElapsed - e.current.Recovery)
+		e.current.Recovery = 0
+		e.phaseElapsed = 0
+		return true
+	}
+	return false
+}
+
+func (e *Engine) PopEvents() []TransitionEvent {
+	if len(e.events) == 0 {
+		return nil
+	}
+	evs := e.events
+	e.events = nil
+	return evs
+}
+
+func (e *Engine) toRetention(auto bool) {
+	e.phase = PhaseRetention
+	e.phaseElapsed = 0
+	if auto {
+		e.events = append(e.events, TransitionEvent{
+			Type:  EventBreathingComplete,
+			Round: e.round,
+			Auto:  true,
+		})
+	}
+}
+
+func (e *Engine) finishRound(auto bool) {
 	e.results = append(e.results, e.current)
+	completedRound := e.round
+	if auto {
+		e.events = append(e.events, TransitionEvent{
+			Type:  EventRecoveryComplete,
+			Round: completedRound,
+			Auto:  true,
+		})
+	}
 	if e.round >= e.settings.Rounds {
 		e.phase = PhaseComplete
 		e.phaseElapsed = 0
+		e.events = append(e.events, TransitionEvent{
+			Type:  EventSessionComplete,
+			Round: completedRound,
+			Auto:  auto,
+		})
 		return
 	}
 	if e.settings.AutoNextRound {
@@ -153,6 +228,8 @@ func (e *Engine) SessionElapsed() time.Duration    { return e.sessionElapsed }
 func (e *Engine) BreathingDuration() time.Duration { return e.settings.Breathing }
 func (e *Engine) RecoveryDuration() time.Duration  { return e.settings.Recovery }
 func (e *Engine) Done() bool                       { return e.phase == PhaseComplete }
+func (e *Engine) Settings() Settings               { return e.settings }
+func (e *Engine) CurrentRound() RoundResult        { return e.current }
 
 func (e *Engine) PhaseClock() time.Duration {
 	switch e.phase {
