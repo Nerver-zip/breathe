@@ -187,3 +187,53 @@ func TestStatsModelView(t *testing.T) {
 		t.Fatalf("expected zero-data view, got:\n%s", emptyView)
 	}
 }
+
+func TestHeaderAndProgressBar(t *testing.T) {
+	engine := session.New(session.Settings{
+		Rounds:    3,
+		Breathing: 10 * time.Second,
+		Recovery:  10 * time.Second,
+	})
+	m := New(engine, "pomo")
+	m.width = 80
+	m.height = 24
+
+	// Elapse 5 seconds (50% progress in breathing)
+	engine.Tick(5 * time.Second)
+
+	view := m.View()
+
+	// Verify header line 1 and line 2
+	if !strings.Contains(view, "BREATHING TUI") {
+		t.Fatalf("expected BREATHING TUI in view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Round 1/3") {
+		t.Fatalf("expected Round 1/3 in view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Active Session 00:05") {
+		t.Fatalf("expected Active Session 00:05 in view, got:\n%s", view)
+	}
+
+	// Verify progress bar has percentage e.g. 50%
+	if !strings.Contains(view, "50%") {
+		t.Fatalf("expected 50%% in progress bar, got:\n%s", view)
+	}
+
+	// Verify progress bar uses block runes and no bracket enclosures around the bar
+	lines := strings.Split(view, "\n")
+	foundProgressBar := false
+	for _, l := range lines {
+		if strings.Contains(l, "50%") {
+			foundProgressBar = true
+			if strings.Contains(l, "[██") || strings.Contains(l, "░]") {
+				t.Fatalf("expected modern progress bar without brackets, got line: %q", l)
+			}
+			if !strings.Contains(l, "█") || !strings.Contains(l, "░") {
+				t.Fatalf("expected bar runes █ and ░, got line: %q", l)
+			}
+		}
+	}
+	if !foundProgressBar {
+		t.Fatalf("failed to locate progress bar line with 50%% in view:\n%s", view)
+	}
+}

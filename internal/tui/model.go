@@ -10,6 +10,7 @@ import (
 	"github.com/Nerver-zip/breathing-tui/internal/session"
 	"github.com/Nerver-zip/breathing-tui/internal/storage"
 	"github.com/Nerver-zip/breathing-tui/internal/theme"
+	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -24,6 +25,7 @@ type Model struct {
 	notifier             notify.Notifier
 	theme                theme.Theme
 	font                 string
+	progressBar          progress.Model
 	width                int
 	height               int
 	lastTick             time.Time
@@ -36,13 +38,29 @@ type Model struct {
 	wasPausedBeforeModal bool
 }
 
+func newProgressBar(th theme.Theme) progress.Model {
+	startColor, endColor := th.Gradient()
+	prog := progress.New(
+		progress.WithGradient(startColor, endColor),
+	)
+	prog.Full = '█'
+	prog.Empty = '░'
+	prog.EmptyColor = string(th.Muted)
+	prog.PercentageStyle = lipgloss.NewStyle().Foreground(th.Secondary)
+	prog.PercentFormat = " %3.0f%%"
+	prog.Width = 50
+	return prog
+}
+
 func New(engine *session.Engine, themeName string) Model {
+	th := themeByName(themeName)
 	return Model{
-		engine:    engine,
-		theme:     themeByName(themeName),
-		font:      DefaultFont,
-		startedAt: time.Now(),
-		notifier:  notify.New(notify.Options{Desktop: false, Bell: false}),
+		engine:      engine,
+		theme:       th,
+		font:        DefaultFont,
+		startedAt:   time.Now(),
+		notifier:    notify.New(notify.Options{Desktop: false, Bell: false}),
+		progressBar: newProgressBar(th),
 	}
 }
 
@@ -50,14 +68,16 @@ func NewSessionModel(engine *session.Engine, store *storage.Store, sessionID int
 	if font == "" {
 		font = DefaultFont
 	}
+	th := themeByName(themeName)
 	return Model{
-		engine:    engine,
-		store:     store,
-		sessionID: sessionID,
-		startedAt: startedAt,
-		notifier:  notif,
-		theme:     themeByName(themeName),
-		font:      font,
+		engine:      engine,
+		store:       store,
+		sessionID:   sessionID,
+		startedAt:   startedAt,
+		notifier:    notif,
+		theme:       th,
+		font:        font,
+		progressBar: newProgressBar(th),
 	}
 }
 
@@ -108,6 +128,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		barWidth := 50
+		if m.width > 0 && m.width-8 < barWidth {
+			barWidth = m.width - 8
+		}
+		if barWidth < 20 {
+			barWidth = 20
+		}
+		m.progressBar.Width = barWidth
 		return m, nil
 
 	case tickMsg:
@@ -299,40 +327,90 @@ func (m Model) View() string {
 		statusStyle = warn
 	}
 
-	progress := ""
-	if m.engine.Phase() == session.PhaseBreathing || m.engine.Phase() == session.PhaseRecovery {
-		progress = renderProgress(m.engine.Progress(), 38)
-	} else if m.engine.Phase() == session.PhaseRetention {
-		progress = muted.Render("retention is open-ended — press [enter] when you need to breathe")
-	} else if m.engine.Phase() == session.PhaseRoundReady {
-		progress = good.Render("press [enter] to begin next round")
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height
+	if h <= 0 {
+		h = 24
 	}
 
-	roundHeader := muted.Render(fmt.Sprintf("Round %d/%d   •   Active Session %s",
-		m.engine.Round(), m.engine.TotalRounds(), formatClock(m.engine.SessionElapsed())))
+	leftTitle := titleStyle.Render("BREATHING TUI")
+	roundText := muted.Render(fmt.Sprintf("Round %d/%d", m.engine.Round(), m.engine.TotalRounds()))
+	sessionText := muted.Render(fmt.Sprintf("Active Session %s", formatClock(m.engine.SessionElapsed())))
+
+	margin := 2
+	innerW := w - (margin * 2)
+	if innerW < 30 {
+		innerW = 30
+	}
+
+	gap1 := innerW - lipgloss.Width(leftTitle) - lipgloss.Width(roundText)
+	if gap1 < 1 {
+		gap1 = 1
+	}
+	line1 := strings.Repeat(" ", margin) + leftTitle + strings.Repeat(" ", gap1) + roundText
+
+	gap2 := innerW - lipgloss.Width(sessionText)
+	if gap2 < 0 {
+		gap2 = 0
+	}
+	line2 := strings.Repeat(" ", margin) + strings.Repeat(" ", gap2) + sessionText
+
+	header := line1 + "\n" + line2
+
+	progressBarView := m.renderProgressBar()
 
 	hotkeys := muted.Render("[space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit")
 
-	body := lipgloss.JoinVertical(
+	centerContent := lipgloss.JoinVertical(
 		lipgloss.Center,
-		titleStyle.Render("BREATHING TUI"),
-		roundHeader,
-		"",
 		statusStyle.Bold(true).Render("● "+status),
 		primary.Bold(true).Render(phaseTitle),
 		secondary.Render(instruction),
 		"",
 		clockBlock,
 		"",
-		progress,
+		progressBarView,
 		"",
 		hotkeys,
 	)
 
 	if m.width <= 0 || m.height <= 0 {
-		return body
+		return lipgloss.JoinVertical(lipgloss.Left, header, "", centerContent)
 	}
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, body)
+
+	availH := h - 3
+	if availH < lipgloss.Height(centerContent) {
+		return lipgloss.JoinVertical(lipgloss.Left, header, "", centerContent)
+	}
+
+	placedCenter := lipgloss.Place(w, availH, lipgloss.Center, lipgloss.Center, centerContent)
+	return header + "\n\n" + placedCenter
+}
+
+func (m Model) renderProgressBar() string {
+	switch m.engine.Phase() {
+	case session.PhaseBreathing, session.PhaseRecovery:
+		barWidth := 50
+		if m.width > 0 && m.width-8 < barWidth {
+			barWidth = m.width - 8
+		}
+		if barWidth < 20 {
+			barWidth = 20
+		}
+		m.progressBar.Width = barWidth
+		return m.progressBar.ViewAs(m.engine.Progress())
+	case session.PhaseRetention:
+		muted := lipgloss.NewStyle().Foreground(m.theme.Muted)
+		return muted.Render("retention is open-ended — press [enter] when you need to breathe")
+	case session.PhaseRoundReady:
+		good := lipgloss.NewStyle().Foreground(m.theme.Good).Bold(true)
+		return good.Render("press [enter] to begin next round")
+	default:
+		return ""
+	}
 }
 
 func (m Model) viewSummary() string {
