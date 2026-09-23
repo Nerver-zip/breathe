@@ -244,6 +244,56 @@ func TestStatsModelViewWithData(t *testing.T) {
 	if !strings.Contains(view, "0 └───") {
 		t.Fatalf("expected bar chart axis, got:\n%s", view)
 	}
+	if !strings.Contains(view, "Completed rounds/day") {
+		t.Fatalf("expected bar chart unit label, got:\n%s", view)
+	}
+}
+
+func TestManualRecoveryAdvancePersistsCompletedRound(t *testing.T) {
+	dir := t.TempDir()
+	store, err := storage.Open(filepath.Join(dir, "manual-recovery.db"))
+	if err != nil {
+		t.Fatalf("storage.Open: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	startedAt := time.Now()
+	sessionID, err := store.CreateSession(ctx, 1, startedAt)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	engine := session.New(session.Settings{
+		Rounds:    1,
+		Breathing: 10 * time.Second,
+		Recovery:  10 * time.Second,
+	})
+	m := NewSessionModel(engine, store, sessionID, startedAt, nil, "default", "")
+
+	engine.Tick(5 * time.Second)
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // end breathing
+	m = updated.(Model)
+	engine.Tick(45 * time.Second)                         // retention
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // end retention
+	m = updated.(Model)
+	engine.Tick(3 * time.Second)                          // partial recovery
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // explicitly finish round
+	m = updated.(Model)
+
+	if !engine.Done() {
+		t.Fatal("expected final round to complete")
+	}
+	report, err := store.GetStats(ctx, startedAt)
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+	if report.TodaySessions != 1 || report.TodayRounds != 1 || report.TodayBestRetention != 45*time.Second {
+		t.Fatalf("manual recovery completion was not persisted: today sessions=%d rounds=%d best retention=%s",
+			report.TodaySessions, report.TodayRounds, report.TodayBestRetention)
+	}
+	if report.Recent7Days[6].Rounds != 1 {
+		t.Fatalf("expected today's chart count to be 1 round, got %d", report.Recent7Days[6].Rounds)
+	}
 }
 
 func TestHeaderAndProgressBar(t *testing.T) {

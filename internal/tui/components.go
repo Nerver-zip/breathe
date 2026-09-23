@@ -33,8 +33,8 @@ func RenderBarChart7Days(days []storage.DayActivity, th theme.Theme, maxWidth in
 
 	var lines []string
 
-	// Lines 1 & 2: blank lines to vertically align with Heatmap's Month Header & Divider lines
-	lines = append(lines, "")
+	// Label the chart's unit and align the plot with the heatmap's weekday rows.
+	lines = append(lines, labelStyle.Render("Completed rounds/day"))
 	lines = append(lines, "")
 
 	// Rows 4 to 1: Data rows

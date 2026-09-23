@@ -214,13 +214,11 @@ func (e *Engine) toRetention(auto bool) {
 func (e *Engine) finishRound(auto bool) {
 	e.results = append(e.results, e.current)
 	completedRound := e.round
-	if auto {
-		e.events = append(e.events, TransitionEvent{
-			Type:  EventRecoveryComplete,
-			Round: completedRound,
-			Auto:  true,
-		})
-	}
+	e.events = append(e.events, TransitionEvent{
+		Type:  EventRecoveryComplete,
+		Round: completedRound,
+		Auto:  auto,
+	})
 	if e.round >= e.settings.Rounds {
 		e.phase = PhaseComplete
 		e.phaseElapsed = 0
