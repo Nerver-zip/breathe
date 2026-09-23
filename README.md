@@ -35,6 +35,10 @@
 - **7 Built-in Themes:** Handcrafted palettes including `pomo`, `catppuccin-mocha`, `dracula`, `gruvbox`, `nord`, `tokyo-night`, `solarized`, and `default`.
 - **100% Local & Private:** Zero accounts, telemetry, or network calls. Fully compliant with XDG base directories.
 
+## Inspiration
+
+The terminal interface and statistics dashboard were inspired by [Bahaaio/pomo](https://github.com/Bahaaio/pomo), a customizable Pomodoro timer for the terminal. Breathing TUI adapts those ideas to multi-round breathing sessions.
+
 ## Installation
 
 ### From Source
