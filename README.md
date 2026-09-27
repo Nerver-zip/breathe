@@ -9,6 +9,8 @@
 [![Built with Bubble Tea](https://img.shields.io/badge/Built%20with-Bubble%20Tea-04a5e5?style=flat-square)](https://github.com/charmbracelet/bubbletea)
 [![Styled with Lip Gloss](https://img.shields.io/badge/Styled%20with-Lip%20Gloss-7c69ec?style=flat-square)](https://github.com/charmbracelet/lipgloss)
 
+![Demo](.github/assets/demo.gif)
+
 [Features](#features) • [Installation](#installation) • [Quickstart](#quickstart) • [Breathing Modes](#breathing-modes) • [Controls](#keyboard-controls) • [Statistics & Cleaner](#statistics--session-cleaner) • [Configuration](#configuration) • [Themes](#themes--fonts)
 
 </div>
@@ -217,10 +219,11 @@ Supported themes: `pomo`, `default`, `catppuccin-mocha`, `dracula`, `gruvbox`, `
 
 Configure the clock font for the central timer:
 
-- `ansiShadow` (default, modern angled shadow)
-- `mono12` (compact clean monospace)
-- `ansi` (classic retro terminal blocks)
-- `rebel` (bold artistic font)
+| **ansiShadow** (default) | **mono12** |
+| :---: | :---: |
+| ![ansiShadow](.github/assets/ansiShadow.png) | ![mono12](.github/assets/mono12.png) |
+| **ansi** | **rebel** |
+| ![ansi](.github/assets/ansi.png) | ![rebel](.github/assets/rebel.png) |
 
 ```bash
 breath config set font ansiShadow
