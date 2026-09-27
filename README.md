@@ -5,6 +5,7 @@
 *A fast, keyboard-first terminal breathing session timer and tracker*
 
 [![Go Version](https://img.shields.io/github/go-mod/go-version/Nerver-zip/breathe?style=flat-square)](https://go.dev/)
+[![Latest Release](https://img.shields.io/github/release/Nerver-zip/breathe.svg)](https://github.com/Nerver-zip/breathe/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Built with Bubble Tea](https://img.shields.io/badge/Built%20with-Bubble%20Tea-04a5e5?style=flat-square)](https://github.com/charmbracelet/bubbletea)
 [![Styled with Lip Gloss](https://img.shields.io/badge/Styled%20with-Lip%20Gloss-7c69ec?style=flat-square)](https://github.com/charmbracelet/lipgloss)
@@ -43,9 +44,15 @@ The terminal interface and statistics dashboard were inspired by [Bahaaio/pomo](
 
 ## Installation
 
+### Prebuilt Releases
+
+Download the latest archive for Linux (x86_64 or ARM64), macOS, Windows, or Android ARM64 from [GitHub Releases](https://github.com/Nerver-zip/breathe/releases/latest). A Termux ARMv7 archive is also available. Linux releases include `.deb` and `.rpm` packages for x86_64 and ARM64.
+
+Archives include the `breath` binary, this README, the license, and `config.example.yaml`. Run `breath --version` to check the installed version.
+
 ### From Source
 
-Ensure you have [Go 1.22+](https://go.dev/dl/) installed:
+Ensure you have [Go 1.24+](https://go.dev/dl/) installed:
 
 ```bash
 git clone https://github.com/Nerver-zip/breathe.git

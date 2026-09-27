@@ -1,0 +1,131 @@
+version: 2
+
+project_name: breathe
+
+before:
+  hooks:
+    - go vet ./...
+    - go test -count=1 ./...
+
+builds:
+  - id: breath
+    binary: breath
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+      - android
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    ignore:
+      - goos: linux
+        goarch: arm
+      - goos: windows
+        goarch: arm
+      - goos: darwin
+        goarch: arm
+      - goos: android
+        goarch: amd64
+      - goos: android
+        goarch: arm
+    ldflags:
+      - -s -w -X github.com/Nerver-zip/breathing-tui/cmd.version={{ .Version }}
+
+  - id: breath-termux-armv7
+    binary: breath
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - arm
+    goarm:
+      - "7"
+    ldflags:
+      - -s -w -X github.com/Nerver-zip/breathing-tui/cmd.version={{ .Version }}
+
+changelog:
+  sort: asc
+  use: github
+  format: "{{ .SHA }}: {{ .Message }}{{ with .AuthorUsername }} (@{{ . }}){{ end }}"
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "^refactor:"
+      - "^style:"
+  groups:
+    - title: "Breaking Changes"
+      regexp: '^.*?(\w+(\([[:word:]]+\))?!:).+$'
+      order: 0
+    - title: "Features"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "Bug fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: "Other changes"
+      order: 999
+
+archives:
+  - id: default
+    ids:
+      - breath
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "arm" }}armv{{ .Arm }}
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE
+      - config.example.yaml
+
+  - id: termux-armv7
+    ids:
+      - breath-termux-armv7
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_Termux_armv7"
+    files:
+      - README.md
+      - LICENSE
+      - config.example.yaml
+
+nfpms:
+  - id: linux-packages
+    ids:
+      - breath
+    package_name: breath
+    maintainer: Nerver-zip
+    description: A local-first terminal breathing timer and tracker.
+    homepage: https://github.com/Nerver-zip/breathe
+    license: MIT
+    formats:
+      - deb
+      - rpm
+
+release:
+  github:
+    owner: Nerver-zip
+    name: breathe
+  name_template: "v{{ .Version }}"
+  footer: |
+    ## Install
+
+    Download the archive for your operating system and architecture above. Linux users can also install the `.deb` or `.rpm` package.

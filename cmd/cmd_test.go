@@ -133,6 +133,16 @@ func TestCLIStartFlagsHelp(t *testing.T) {
 	}
 }
 
+func TestCLIVersionFlag(t *testing.T) {
+	out, err := executeCommand("--version")
+	if err != nil {
+		t.Fatalf("version command error: %v", err)
+	}
+	if strings.TrimSpace(out) != "breath version dev" {
+		t.Fatalf("unexpected version output: %q", out)
+	}
+}
+
 func TestCLICleanSessions(t *testing.T) {
 	setupTestEnv(t)
 

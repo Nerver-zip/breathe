@@ -3,6 +3,7 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -14,10 +15,27 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Format check
-        run: test -z "$(gofmt -l .)"
-      - name: Test
-        run: go test ./...
+        run: test -z "$(gofmt -s -l .)"
+      - name: Test (Race)
+        run: go test -count=1 -race ./...
       - name: Vet
         run: go vet ./...
       - name: Build
-        run: go build ./...
+        run: go build -v ./...
+      - name: Validate GoReleaser configuration
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+      - name: Cross-compile release targets
+        run: |
+          set -eu
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null .
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -o /dev/null .
