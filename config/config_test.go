@@ -101,12 +101,17 @@ func TestSetValidKeys(t *testing.T) {
 		t.Fatalf("Set quotes failed: %v, %#v", err, cfg.Quotes)
 	}
 
+	cfg, err = Set("timezone", "America/Sao_Paulo")
+	if err != nil || cfg.Timezone != "America/Sao_Paulo" {
+		t.Fatalf("Set timezone failed: %v, %#v", err, cfg)
+	}
+
 	// Verify persistence by loading afresh
 	loaded, err := Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.Rounds != 5 || loaded.Theme != "nord" || loaded.Notifications || loaded.Bell || loaded.Font != "mono12" || loaded.Mode != "counted" || loaded.Breaths != 40 || loaded.QuoteInterval != 15*time.Second || len(loaded.Quotes) != 2 {
+	if loaded.Rounds != 5 || loaded.Theme != "nord" || loaded.Notifications || loaded.Bell || loaded.Font != "mono12" || loaded.Mode != "counted" || loaded.Breaths != 40 || loaded.QuoteInterval != 15*time.Second || len(loaded.Quotes) != 2 || loaded.Timezone != "America/Sao_Paulo" {
 		t.Fatalf("re-loaded config mismatch: %#v", loaded)
 	}
 }
@@ -136,5 +141,9 @@ func TestSetInvalidKeysAndValues(t *testing.T) {
 
 	if _, err := Set("font", "non-existent-font"); err == nil {
 		t.Fatal("expected error for invalid font")
+	}
+
+	if _, err := Set("timezone", "Invalid/Timezone_Name_That_Does_Not_Exist"); err == nil {
+		t.Fatal("expected error for invalid timezone")
 	}
 }

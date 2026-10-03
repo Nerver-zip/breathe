@@ -24,6 +24,7 @@ type Config struct {
 	Font          string        `mapstructure:"font" yaml:"font"`
 	Mode          string        `mapstructure:"mode" yaml:"mode"`
 	Breaths       int           `mapstructure:"breaths" yaml:"breaths"`
+	Timezone      string        `mapstructure:"timezone" yaml:"timezone,omitempty"`
 	Quotes        []string      `mapstructure:"quotes" yaml:"quotes,omitempty"`
 	QuoteInterval time.Duration `mapstructure:"quote_interval" yaml:"quote_interval,omitempty"`
 }
@@ -40,6 +41,7 @@ func Defaults() Config {
 		Font:          "ansiShadow",
 		Mode:          "timed",
 		Breaths:       30,
+		Timezone:      "auto",
 		Quotes:        nil,
 		QuoteInterval: 30 * time.Second,
 	}
@@ -84,6 +86,7 @@ func Load() (Config, error) {
 	v.SetDefault("font", cfg.Font)
 	v.SetDefault("mode", cfg.Mode)
 	v.SetDefault("breaths", cfg.Breaths)
+	v.SetDefault("timezone", cfg.Timezone)
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !os.IsNotExist(err) {
@@ -112,6 +115,15 @@ func Load() (Config, error) {
 	} else {
 		cfg.Breaths = 30
 	}
+	tz := strings.TrimSpace(v.GetString("timezone"))
+	if tz == "" {
+		tz = "auto"
+	} else if !strings.EqualFold(tz, "auto") {
+		if _, err := time.LoadLocation(tz); err != nil {
+			return cfg, fmt.Errorf("invalid timezone %q: %w", tz, err)
+		}
+	}
+	cfg.Timezone = tz
 
 	if d, err := time.ParseDuration(v.GetString("breathing")); err == nil {
 		cfg.Breathing = d
@@ -178,6 +190,7 @@ type yamlConfig struct {
 	Font          string   `yaml:"font"`
 	Mode          string   `yaml:"mode"`
 	Breaths       int      `yaml:"breaths"`
+	Timezone      string   `yaml:"timezone,omitempty"`
 	Quotes        []string `yaml:"quotes,omitempty"`
 	QuoteInterval string   `yaml:"quote_interval,omitempty"`
 }
@@ -207,6 +220,7 @@ func Save(cfg Config) error {
 		Font:          cfg.Font,
 		Mode:          cfg.Mode,
 		Breaths:       cfg.Breaths,
+		Timezone:      cfg.Timezone,
 		Quotes:        cfg.Quotes,
 		QuoteInterval: quoteIntervalStr,
 	}
@@ -239,6 +253,7 @@ var SupportedKeys = []string{
 	"font",
 	"mode",
 	"breaths",
+	"timezone",
 	"quote_interval",
 	"quotes",
 }
@@ -346,6 +361,15 @@ func Set(key, value string) (Config, error) {
 				}
 			}
 			cfg.Quotes = list
+		}
+	case "timezone", "tz":
+		if value == "" || strings.EqualFold(value, "auto") {
+			cfg.Timezone = "auto"
+		} else {
+			if _, err := time.LoadLocation(value); err != nil {
+				return cfg, fmt.Errorf("invalid timezone %q: %w", value, err)
+			}
+			cfg.Timezone = value
 		}
 	default:
 		return cfg, fmt.Errorf("unknown configuration key %q. Supported keys: %s", key, strings.Join(SupportedKeys, ", "))

@@ -3,7 +3,10 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
+	appconfig "github.com/Nerver-zip/breathing-tui/config"
+	"github.com/Nerver-zip/breathing-tui/internal/timezone"
 	"github.com/spf13/cobra"
 )
 
@@ -15,6 +18,15 @@ var rootCmd = &cobra.Command{
 	Version: version,
 	Long: `Breathing TUI guides timed breathing rounds, open-ended breath retention,
 and recovery holds while recording completed sessions locally.`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := appconfig.Load()
+		if err == nil && cfg.Timezone != "" && !strings.EqualFold(cfg.Timezone, "auto") {
+			_, _ = timezone.Set(cfg.Timezone)
+		} else {
+			_, _ = timezone.DetectAndSet("")
+		}
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runStart(cmd, args)
 	},

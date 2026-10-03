@@ -2,6 +2,7 @@ package cmd
 
 import (
 	appconfig "github.com/Nerver-zip/breathing-tui/config"
+	"github.com/Nerver-zip/breathing-tui/internal/timezone"
 	"github.com/spf13/cobra"
 )
 
@@ -19,8 +20,9 @@ var configShowCmd = &cobra.Command{
 			return err
 		}
 		path, _ := appconfig.Path()
-		cmd.Printf("path: %s\nrounds: %d\nbreathing: %s\nrecovery: %s\nauto_next_round: %t\ntheme: %s\nnotifications: %t\nbell: %t\nfont: %s\n",
-			path, cfg.Rounds, cfg.Breathing, cfg.Recovery, cfg.AutoNextRound, cfg.Theme, cfg.Notifications, cfg.Bell, cfg.Font)
+		_, tzSource := timezone.Current()
+		cmd.Printf("path: %s\nrounds: %d\nbreathing: %s\nrecovery: %s\nauto_next_round: %t\ntheme: %s\nnotifications: %t\nbell: %t\nfont: %s\ntimezone: %s (%s)\n",
+			path, cfg.Rounds, cfg.Breathing, cfg.Recovery, cfg.AutoNextRound, cfg.Theme, cfg.Notifications, cfg.Bell, cfg.Font, cfg.Timezone, tzSource)
 		return nil
 	},
 }

@@ -66,6 +66,23 @@ func TestCLIConfigCommands(t *testing.T) {
 	if !strings.Contains(out, "rounds: 4") {
 		t.Fatalf("expected rounds: 4, got: %s", out)
 	}
+
+	// config set timezone America/Sao_Paulo
+	out, err = executeCommand("config", "set", "timezone", "America/Sao_Paulo")
+	if err != nil {
+		t.Fatalf("config set timezone error: %v", err)
+	}
+	if !strings.Contains(out, "Updated timezone to America/Sao_Paulo") {
+		t.Fatalf("unexpected set output: %s", out)
+	}
+
+	out, err = executeCommand("config", "show")
+	if err != nil {
+		t.Fatalf("config show error: %v", err)
+	}
+	if !strings.Contains(out, "timezone: America/Sao_Paulo") {
+		t.Fatalf("expected timezone: America/Sao_Paulo in show output, got: %s", out)
+	}
 }
 
 func TestCLIThemeCommands(t *testing.T) {

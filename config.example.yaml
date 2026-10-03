@@ -33,6 +33,10 @@ notifications: true
 # Terminal bell on transitions
 bell: true
 
+# Timezone for local date grouping, daily statistics, and streaks (e.g. "America/Sao_Paulo", "UTC", "auto")
+# Default: auto (automatically detects from system clock, environment $TZ, or Android persist.sys.timezone)
+timezone: auto
+
 # Time interval to alternate motivational/focus phrases (default 30s)
 quote_interval: 30s
 
