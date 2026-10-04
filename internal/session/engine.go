@@ -42,12 +42,25 @@ const (
 	EventBreathingComplete EventType = "breathing_complete"
 	EventRecoveryComplete  EventType = "recovery_complete"
 	EventSessionComplete   EventType = "session_complete"
+	EventRoundRewound      EventType = "round_rewound"
 )
 
 type TransitionEvent struct {
 	Type  EventType
 	Round int
 	Auto  bool
+}
+
+type PhaseSnapshot struct {
+	Phase          Phase
+	Round          int
+	PhaseElapsed   time.Duration
+	SessionElapsed time.Duration
+	BonusBreathing time.Duration
+	Breaths        int
+	Current        RoundResult
+	Results        []RoundResult
+	CompletedFully bool
 }
 
 type Engine struct {
@@ -62,6 +75,7 @@ type Engine struct {
 	results        []RoundResult
 	current        RoundResult
 	events         []TransitionEvent
+	history        []PhaseSnapshot
 }
 
 func New(settings Settings) *Engine {
@@ -103,6 +117,7 @@ func (e *Engine) Tick(delta time.Duration) {
 			e.sessionElapsed += step
 			e.current.Breathing += step
 			if e.phaseElapsed >= totalBreathing {
+				e.pushSnapshot(true)
 				e.toRetention(true)
 				if delta > step {
 					e.Tick(delta - step)
@@ -124,6 +139,7 @@ func (e *Engine) Tick(delta time.Duration) {
 		e.sessionElapsed += step
 		e.current.Recovery += step
 		if e.phaseElapsed >= e.settings.Recovery {
+			e.pushSnapshot(true)
 			e.finishRound(true)
 			if delta > step && e.phase == PhaseBreathing {
 				e.Tick(delta - step)
@@ -136,6 +152,7 @@ func (e *Engine) Advance() {
 	if e.phase == PhaseComplete {
 		return
 	}
+	e.pushSnapshot(false)
 	switch e.phase {
 	case PhaseBreathing:
 		e.toRetention(false)
@@ -167,6 +184,7 @@ func (e *Engine) ResetCurrentPhase() bool {
 	if e.phase == PhaseComplete || e.phase == PhaseRoundReady {
 		return false
 	}
+	e.pushSnapshot(false)
 	switch e.phase {
 	case PhaseBreathing:
 		e.sessionElapsed = clampNonNegative(e.sessionElapsed - e.current.Breathing)
@@ -188,6 +206,108 @@ func (e *Engine) ResetCurrentPhase() bool {
 		return true
 	}
 	return false
+}
+
+func (e *Engine) ResetCurrentRound() bool {
+	if e.phase == PhaseComplete {
+		return false
+	}
+	e.pushSnapshot(false)
+
+	// If in PhaseRoundReady, the round was already completed and appended to results
+	if e.phase == PhaseRoundReady && len(e.results) > 0 {
+		e.results = e.results[:len(e.results)-1]
+		e.events = append(e.events, TransitionEvent{
+			Type:  EventRoundRewound,
+			Round: e.round,
+		})
+	}
+
+	// Active time accrued in the current round
+	roundElapsed := e.current.Breathing + e.current.Retention + e.current.Recovery
+	e.sessionElapsed = clampNonNegative(e.sessionElapsed - roundElapsed)
+
+	e.current = RoundResult{Index: e.round}
+	e.phase = PhaseBreathing
+	e.phaseElapsed = 0
+	e.bonusBreathing = 0
+	e.breaths = 0
+
+	return true
+}
+
+func (e *Engine) pushSnapshot(completedFully bool) {
+	snap := PhaseSnapshot{
+		Phase:          e.phase,
+		Round:          e.round,
+		PhaseElapsed:   e.phaseElapsed,
+		SessionElapsed: e.sessionElapsed,
+		BonusBreathing: e.bonusBreathing,
+		Breaths:        e.breaths,
+		Current:        e.current,
+		Results:        make([]RoundResult, len(e.results)),
+		CompletedFully: completedFully,
+	}
+	copy(snap.Results, e.results)
+	e.history = append(e.history, snap)
+	if len(e.history) > 100 {
+		e.history = e.history[len(e.history)-100:]
+	}
+}
+
+func (e *Engine) CanRewind() bool {
+	return len(e.history) > 0
+}
+
+func (e *Engine) Rewind() (bool, bool) {
+	if len(e.history) == 0 {
+		return false, false
+	}
+	lastIdx := len(e.history) - 1
+	snap := e.history[lastIdx]
+	e.history = e.history[:lastIdx]
+
+	oldRound := e.round
+	prevResultsLen := len(e.results)
+
+	e.phase = snap.Phase
+	e.round = snap.Round
+	e.bonusBreathing = snap.BonusBreathing
+	e.breaths = snap.Breaths
+	e.current = snap.Current
+	e.results = make([]RoundResult, len(snap.Results))
+	copy(e.results, snap.Results)
+
+	if snap.CompletedFully {
+		// Completed naturally: restart this phase from 0
+		e.sessionElapsed = clampNonNegative(snap.SessionElapsed - snap.PhaseElapsed)
+		e.phaseElapsed = 0
+		e.breaths = 0
+		e.current.Breaths = 0
+		switch snap.Phase {
+		case PhaseBreathing:
+			e.current.Breathing = 0
+		case PhaseRetention:
+			e.current.Retention = 0
+		case PhaseRecovery:
+			e.current.Recovery = 0
+		}
+	} else {
+		// Interrupted/skipped mid-flight: restore exact elapsed duration
+		e.phaseElapsed = snap.PhaseElapsed
+		e.sessionElapsed = snap.SessionElapsed
+	}
+
+	rewoundRound := false
+	if oldRound > snap.Round || len(snap.Results) < prevResultsLen {
+		rewoundRound = true
+		e.events = append(e.events, TransitionEvent{
+			Type:  EventRoundRewound,
+			Round: oldRound,
+		})
+	}
+
+	return rewoundRound, true
 }
 
 func (e *Engine) PopEvents() []TransitionEvent {
@@ -299,6 +419,7 @@ func (e *Engine) IncrementBreaths() bool {
 	e.breaths++
 	e.current.Breaths = e.breaths
 	if e.breaths >= e.settings.TargetBreaths {
+		e.pushSnapshot(true)
 		e.toRetention(true)
 	}
 	return true

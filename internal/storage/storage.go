@@ -208,6 +208,39 @@ func (s *Store) SaveRound(ctx context.Context, sessionID int64, res session.Roun
 	return tx.Commit()
 }
 
+func (s *Store) RollbackLastRound(ctx context.Context, sessionID int64) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `
+		DELETE FROM rounds
+		WHERE id = (
+			SELECT id FROM rounds
+			WHERE session_id = ?
+			ORDER BY round_index DESC, id DESC
+			LIMIT 1
+		)`, sessionID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE sessions
+		SET completed_rounds = (SELECT COUNT(*) FROM rounds WHERE session_id = ?),
+		    status = 'active'
+		WHERE id = ?`,
+		sessionID, sessionID,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 func (s *Store) EndSession(ctx context.Context, sessionID int64, endedAt time.Time, activeDuration, wallDuration time.Duration, status string) error {
 	if status == "" {
 		status = "completed"

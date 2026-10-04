@@ -523,3 +523,116 @@ func TestQuotesTypewriterAndAlternation(t *testing.T) {
 		t.Fatalf("expected quote 2 to begin typing 'S', got %q", rendered)
 	}
 }
+
+func TestKeyBRewindsAndRollsBackRoundInStorage(t *testing.T) {
+	dir := t.TempDir()
+	store, err := storage.Open(filepath.Join(dir, "rewind-round.db"))
+	if err != nil {
+		t.Fatalf("storage.Open: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	startedAt := time.Now()
+	sessionID, err := store.CreateSession(ctx, 2, startedAt)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	engine := session.New(session.Settings{
+		Rounds:        2,
+		Breathing:     5 * time.Second,
+		Recovery:      5 * time.Second,
+		AutoNextRound: true,
+	})
+	m := NewSessionModel(engine, store, sessionID, startedAt, nil, "default", "")
+
+	// Round 1: advance breathing -> retention -> recovery -> auto next round (starts round 2)
+	engine.Tick(5 * time.Second)                           // finish breathing
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // skip retention
+	m = updated.(Model)
+	engine.Tick(5 * time.Second) // finish recovery -> round 1 completed and saved to store!
+	m.processEvents()
+
+	if engine.Round() != 2 || engine.Phase() != session.PhaseBreathing {
+		t.Fatalf("expected Round 2 Breathing, got Round %d Phase %s", engine.Round(), engine.Phase())
+	}
+
+	var count int
+	_ = store.DB().GetContext(ctx, &count, `SELECT completed_rounds FROM sessions WHERE id = ?`, sessionID)
+	if count != 1 {
+		t.Fatalf("expected 1 round saved in storage, got %d", count)
+	}
+
+	// Press 'b' to rewind back to Round 1
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	m = updated.(Model)
+
+	if engine.Round() != 1 || engine.Phase() != session.PhaseRecovery {
+		t.Fatalf("expected Round 1 Recovery after pressing b, got Round %d Phase %s", engine.Round(), engine.Phase())
+	}
+
+	// Verify Round 1 was rolled back from storage!
+	_ = store.DB().GetContext(ctx, &count, `SELECT completed_rounds FROM sessions WHERE id = ?`, sessionID)
+	if count != 0 {
+		t.Fatalf("expected completed_rounds = 0 after rewind, got %d", count)
+	}
+	var roundCount int
+	_ = store.DB().GetContext(ctx, &roundCount, `SELECT COUNT(*) FROM rounds WHERE session_id = ?`, sessionID)
+	if roundCount != 0 {
+		t.Fatalf("expected 0 rounds in rounds table after rollback, got %d", roundCount)
+	}
+}
+
+func TestKeyRResetsCurrentRoundWithConfirmation(t *testing.T) {
+	engine := session.New(session.Settings{
+		Rounds:    2,
+		Breathing: 10 * time.Second,
+		Recovery:  10 * time.Second,
+	})
+	m := New(engine, "default")
+	m.width = 80
+	m.height = 24
+
+	// Advance to retention and tick 8 seconds
+	engine.Tick(5 * time.Second)
+	engine.Advance()
+	engine.Tick(8 * time.Second)
+
+	// Press 'R' to request reset round
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	m = updated.(Model)
+
+	if !m.confirmResetRound {
+		t.Fatal("expected confirmResetRound modal to be open")
+	}
+	view := m.View()
+	if !strings.Contains(view, "RESET ROUND?") {
+		t.Fatalf("expected RESET ROUND? in modal view, got:\n%s", view)
+	}
+
+	// Cancel with 'n'
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m = updated.(Model)
+	if m.confirmResetRound {
+		t.Fatal("expected confirmResetRound modal to be closed after 'n'")
+	}
+	if engine.Phase() != session.PhaseRetention {
+		t.Fatalf("expected phase to still be retention, got %s", engine.Phase())
+	}
+
+	// Press 'R' again and confirm with 'y'
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = updated.(Model)
+
+	if m.confirmResetRound {
+		t.Fatal("expected confirmResetRound modal to be closed after 'y'")
+	}
+	if engine.Phase() != session.PhaseBreathing {
+		t.Fatalf("expected PhaseBreathing after round reset, got %s", engine.Phase())
+	}
+	if engine.PhaseElapsed() != 0 {
+		t.Fatalf("expected phaseElapsed to be 0 after round reset, got %s", engine.PhaseElapsed())
+	}
+}

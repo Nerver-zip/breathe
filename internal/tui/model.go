@@ -35,6 +35,7 @@ type Model struct {
 	showHelp             bool
 	confirmQuit          bool
 	confirmReset         bool
+	confirmResetRound    bool
 	wasPausedBeforeModal bool
 	lastActionTime       time.Time
 	quotes               []string
@@ -122,6 +123,10 @@ func (m *Model) processEvents() {
 			if len(results) > 0 && m.store != nil && m.sessionID > 0 {
 				lastRes := results[len(results)-1]
 				_ = m.store.SaveRound(context.Background(), m.sessionID, lastRes)
+			}
+		} else if ev.Type == session.EventRoundRewound {
+			if m.store != nil && m.sessionID > 0 {
+				_ = m.store.RollbackLastRound(context.Background(), m.sessionID)
 			}
 		}
 
@@ -221,6 +226,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Overlay: Reset Round Confirmation
+		if m.confirmResetRound {
+			switch key {
+			case "y", "Y":
+				m.engine.ResetCurrentRound()
+				m.confirmResetRound = false
+				m.processEvents()
+				m.engine.SetPaused(m.wasPausedBeforeModal)
+				return m, nil
+			case "n", "N", "esc", "R", "r":
+				m.confirmResetRound = false
+				m.engine.SetPaused(m.wasPausedBeforeModal)
+				return m, nil
+			default:
+				return m, nil
+			}
+		}
+
 		// Overlay: Help
 		if m.showHelp {
 			if key == "?" || key == "esc" || key == "q" {
@@ -240,6 +263,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.openStats = true
 				m.quitting = true
 				return m, tea.Quit
+			case "b", "B", "backspace", "left":
+				if m.engine.CanRewind() {
+					m.engine.Rewind()
+					m.processEvents()
+					return m, nil
+				}
 			}
 			return m, nil
 		}
@@ -286,6 +315,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.processEvents()
 			return m, nil
 
+		case "b", "B", "backspace", "left":
+			if m.engine.CanRewind() {
+				m.engine.Rewind()
+				m.processEvents()
+			}
+			return m, nil
+
 		case "r":
 			// If in retention with active count-up, ask for confirmation
 			if m.engine.Phase() == session.PhaseRetention && m.engine.PhaseElapsed() > 0 {
@@ -295,6 +331,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.engine.ResetCurrentPhase()
 			}
+			return m, nil
+
+		case "R":
+			m.wasPausedBeforeModal = m.engine.Paused()
+			m.engine.SetPaused(true)
+			m.confirmResetRound = true
 			return m, nil
 
 		case "?":
@@ -331,6 +373,19 @@ func (m Model) View() string {
 			"RESET RETENTION?",
 			fmt.Sprintf("Restart phase and discard %s retention time?", formatClock(m.engine.PhaseElapsed())),
 			"Discard retention?",
+			m.theme,
+		)
+		if m.width > 0 && m.height > 0 {
+			return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
+		}
+		return modal
+	}
+
+	if m.confirmResetRound {
+		modal := RenderConfirmModal(
+			"RESET ROUND?",
+			fmt.Sprintf("Restart Round %d from the beginning?", m.engine.Round()),
+			"Reset round?",
 			m.theme,
 		)
 		if m.width > 0 && m.height > 0 {
@@ -435,12 +490,12 @@ func (m Model) View() string {
 
 	progressBarView := m.renderProgressBar()
 
-	hotkeysText := "[space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit"
+	hotkeysText := "[b] back  [enter/n] next  [r] reset  [space/p] pause  [?] help  [q] quit"
 	if m.engine.Phase() == session.PhaseBreathing {
 		if m.engine.Mode() == session.BreathingModeCounted {
-			hotkeysText = "[a] +1  [s] -1  [space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit"
+			hotkeysText = "[a] +1  [s] -1  [b] back  [enter/n] next  [r] reset  [space/p] pause  [?] help  [q] quit"
 		} else {
-			hotkeysText = "[a] +30s  [space/p] pause  [enter/n] next  [r] reset  [?] help  [q] quit"
+			hotkeysText = "[a] +30s  [b] back  [enter/n] next  [r] reset  [space/p] pause  [?] help  [q] quit"
 		}
 	}
 	hotkeys := muted.Render(hotkeysText)
@@ -585,7 +640,7 @@ func (m Model) viewSummary() string {
 			table.String(),
 			muted.Render(fmt.Sprintf("Average Retention: %s   •   Best: %s", formatClock(avgRetention), formatClock(bestRetention))),
 			"",
-			muted.Render("[enter / q] exit   •   [s] view full statistics"),
+			muted.Render("[enter / q] exit   •   [s] view full statistics   •   [b] back"),
 		))
 
 	body := lipgloss.JoinVertical(lipgloss.Center, titleStyle.Render("BREATHING TUI"), "", summaryBox)
