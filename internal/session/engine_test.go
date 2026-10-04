@@ -352,3 +352,193 @@ func TestDecrementBreaths(t *testing.T) {
 		t.Fatalf("expected 2 breaths after decrement, got %d", e.Breaths())
 	}
 }
+
+func TestRewindRetentionMidFlight(t *testing.T) {
+	e := New(Settings{
+		Rounds:    2,
+		Breathing: 1 * time.Minute,
+		Recovery:  30 * time.Second,
+	})
+
+	// Advance through breathing to retention
+	e.Advance()
+	if e.Phase() != PhaseRetention {
+		t.Fatalf("expected retention, got %s", e.Phase())
+	}
+
+	// 10 seconds into retention
+	e.Tick(10 * time.Second)
+	if e.PhaseClock() != 10*time.Second {
+		t.Fatalf("expected 10s retention, got %s", e.PhaseClock())
+	}
+
+	// Accidental double-enter: skipped retention into recovery, then into next round / ready
+	e.Advance() // into recovery
+	if e.Phase() != PhaseRecovery {
+		t.Fatalf("expected recovery, got %s", e.Phase())
+	}
+	e.Advance() // finishes round 1, ready for round 2
+	if e.Phase() != PhaseRoundReady {
+		t.Fatalf("expected round ready, got %s", e.Phase())
+	}
+
+	// User realizes mistake and presses Back
+	rewoundRound, ok := e.Rewind()
+	if !ok || !rewoundRound {
+		t.Fatalf("expected Rewind to succeed and rewind round, got ok=%v rewoundRound=%v", ok, rewoundRound)
+	}
+	if e.Phase() != PhaseRecovery {
+		t.Fatalf("expected recovery phase after first rewind, got %s", e.Phase())
+	}
+
+	// User presses Back again
+	rewoundRound, ok = e.Rewind()
+	if !ok || rewoundRound {
+		t.Fatalf("expected Rewind to succeed within same round, got ok=%v rewoundRound=%v", ok, rewoundRound)
+	}
+	if e.Phase() != PhaseRetention {
+		t.Fatalf("expected retention phase after second rewind, got %s", e.Phase())
+	}
+
+	// Crucial check: retention clock must be restored to exactly 10s!
+	if e.PhaseClock() != 10*time.Second {
+		t.Fatalf("expected restored retention clock to be 10s, got %s", e.PhaseClock())
+	}
+
+	// User continues holding breath for another 15 seconds (total 25s)
+	e.Tick(15 * time.Second)
+	if e.PhaseClock() != 25*time.Second {
+		t.Fatalf("expected 25s retention, got %s", e.PhaseClock())
+	}
+
+	// Now advance properly
+	e.Advance()              // into recovery
+	e.Tick(30 * time.Second) // recovery complete
+
+	results := e.Results()
+	if len(results) != 1 || results[0].Retention != 25*time.Second {
+		t.Fatalf("expected 1 round with 25s retention, got %#v", results)
+	}
+}
+
+func TestRewindCompletedPhaseRestartsAtZero(t *testing.T) {
+	e := New(Settings{
+		Rounds:    1,
+		Breathing: 3 * time.Second,
+		Recovery:  2 * time.Second,
+	})
+
+	// Breathing countdown completes naturally
+	e.Tick(3 * time.Second)
+	if e.Phase() != PhaseRetention {
+		t.Fatalf("expected retention after 3s, got %s", e.Phase())
+	}
+
+	// User rewinds back to breathing
+	rewoundRound, ok := e.Rewind()
+	if !ok {
+		t.Fatal("expected Rewind to succeed")
+	}
+	if rewoundRound {
+		t.Fatal("expected rewoundRound to be false within round 1")
+	}
+	if e.Phase() != PhaseBreathing {
+		t.Fatalf("expected PhaseBreathing, got %s", e.Phase())
+	}
+
+	// Since breathing completed naturally before, rewinding must start it from 0
+	if e.PhaseElapsed() != 0 {
+		t.Fatalf("expected phaseElapsed 0, got %s", e.PhaseElapsed())
+	}
+	if e.PhaseClock() != 3*time.Second {
+		t.Fatalf("expected full 3s remaining on clock, got %s", e.PhaseClock())
+	}
+	if e.SessionElapsed() != 0 {
+		t.Fatalf("expected sessionElapsed 0, got %s", e.SessionElapsed())
+	}
+}
+
+func TestRewindAcrossRounds(t *testing.T) {
+	e := New(Settings{
+		Rounds:        2,
+		Breathing:     2 * time.Second,
+		Recovery:      2 * time.Second,
+		AutoNextRound: true,
+	})
+
+	e.Tick(2 * time.Second) // finish breathing R1
+	e.Advance()             // skip retention R1
+	e.Tick(2 * time.Second) // finish recovery R1 -> auto starts R2
+
+	if e.Round() != 2 || e.Phase() != PhaseBreathing {
+		t.Fatalf("expected Round 2 Breathing, got Round %d Phase %s", e.Round(), e.Phase())
+	}
+	if len(e.Results()) != 1 {
+		t.Fatalf("expected 1 completed round result, got %d", len(e.Results()))
+	}
+
+	// Rewind back to Round 1
+	rewoundRound, ok := e.Rewind()
+	if !ok || !rewoundRound {
+		t.Fatalf("expected rewoundRound=true, got ok=%v, rewoundRound=%v", ok, rewoundRound)
+	}
+	if e.Round() != 1 || e.Phase() != PhaseRecovery {
+		t.Fatalf("expected Round 1 Recovery, got Round %d Phase %s", e.Round(), e.Phase())
+	}
+	// Result for Round 1 should be removed
+	if len(e.Results()) != 0 {
+		t.Fatalf("expected 0 completed round results after rewind, got %d", len(e.Results()))
+	}
+
+	events := e.PopEvents()
+	foundRewoundEvent := false
+	for _, ev := range events {
+		if ev.Type == EventRoundRewound {
+			foundRewoundEvent = true
+			break
+		}
+	}
+	if !foundRewoundEvent {
+		t.Fatal("expected EventRoundRewound event")
+	}
+}
+
+func TestResetCurrentRound(t *testing.T) {
+	e := New(Settings{
+		Rounds:    2,
+		Breathing: 10 * time.Second,
+		Recovery:  5 * time.Second,
+	})
+
+	e.Tick(4 * time.Second) // 4s breathing
+	e.Advance()             // to retention
+	e.Tick(8 * time.Second) // 8s retention
+
+	if e.SessionElapsed() != 12*time.Second {
+		t.Fatalf("expected sessionElapsed 12s, got %s", e.SessionElapsed())
+	}
+
+	// Reset round
+	if !e.ResetCurrentRound() {
+		t.Fatal("expected ResetCurrentRound to return true")
+	}
+
+	if e.Phase() != PhaseBreathing {
+		t.Fatalf("expected PhaseBreathing, got %s", e.Phase())
+	}
+	if e.PhaseElapsed() != 0 {
+		t.Fatalf("expected phaseElapsed 0, got %s", e.PhaseElapsed())
+	}
+	if e.SessionElapsed() != 0 {
+		t.Fatalf("expected sessionElapsed 0 after round reset, got %s", e.SessionElapsed())
+	}
+
+	// Rewind undoes the round reset!
+	_, ok := e.Rewind()
+	if !ok {
+		t.Fatal("expected Rewind to undo round reset")
+	}
+	if e.Phase() != PhaseRetention || e.PhaseClock() != 8*time.Second {
+		t.Fatalf("expected restored PhaseRetention with 8s clock, got %s with %s", e.Phase(), e.PhaseClock())
+	}
+}

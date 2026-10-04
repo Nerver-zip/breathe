@@ -224,6 +224,72 @@ func TestCleanupUnfinishedSessions(t *testing.T) {
 	}
 }
 
+func TestRollbackLastRound(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	sessID, err := store.CreateSession(ctx, 3, time.Now())
+	if err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
+
+	// Save Round 1
+	err = store.SaveRound(ctx, sessID, session.RoundResult{
+		Index:     1,
+		Breathing: 3 * time.Minute,
+		Retention: 45 * time.Second,
+		Recovery:  15 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("SaveRound 1 error: %v", err)
+	}
+
+	// Save Round 2
+	err = store.SaveRound(ctx, sessID, session.RoundResult{
+		Index:     2,
+		Breathing: 3 * time.Minute,
+		Retention: 60 * time.Second,
+		Recovery:  15 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("SaveRound 2 error: %v", err)
+	}
+
+	var count int
+	_ = store.DB().GetContext(ctx, &count, `SELECT completed_rounds FROM sessions WHERE id = ?`, sessID)
+	if count != 2 {
+		t.Fatalf("expected completed_rounds = 2, got %d", count)
+	}
+
+	// Rollback Round 2
+	err = store.RollbackLastRound(ctx, sessID)
+	if err != nil {
+		t.Fatalf("RollbackLastRound error: %v", err)
+	}
+
+	_ = store.DB().GetContext(ctx, &count, `SELECT completed_rounds FROM sessions WHERE id = ?`, sessID)
+	if count != 1 {
+		t.Fatalf("expected completed_rounds = 1 after rollback, got %d", count)
+	}
+
+	var roundCount int
+	_ = store.DB().GetContext(ctx, &roundCount, `SELECT COUNT(*) FROM rounds WHERE session_id = ?`, sessID)
+	if roundCount != 1 {
+		t.Fatalf("expected 1 round in rounds table, got %d", roundCount)
+	}
+
+	// Rollback Round 1
+	err = store.RollbackLastRound(ctx, sessID)
+	if err != nil {
+		t.Fatalf("RollbackLastRound 2nd error: %v", err)
+	}
+
+	_ = store.DB().GetContext(ctx, &count, `SELECT completed_rounds FROM sessions WHERE id = ?`, sessID)
+	if count != 0 {
+		t.Fatalf("expected completed_rounds = 0 after 2nd rollback, got %d", count)
+	}
+}
+
 func TestStreakCalculation(t *testing.T) {
 	refTime := time.Date(2026, 9, 13, 12, 0, 0, 0, time.Local) // 2026-09-13 is today
 

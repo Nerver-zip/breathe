@@ -109,9 +109,11 @@ breath start --theme pomo --font ansiShadow
 |---|---|
 | `Space` / `p` | Pause or resume session clocks |
 | `Enter` / `n` | Advance to next phase (end retention, skip recovery) |
+| `b` / `Backspace` / `←` | Step back / rewind to previous phase or round |
 | `a` / `+` | Add 1 breath (counted mode) or +30s (timed mode) |
 | `s` / `-` | Subtract 1 breath (counted mode only) |
 | `r` | Restart current phase (prompts confirmation during retention) |
+| `R` | Restart entire current round from beginning (prompts confirmation) |
 | `?` | Toggle help overlay and safety reminder |
 | `q` / `Esc` | Quit session (prompts confirmation; completed rounds are preserved) |
 
@@ -121,6 +123,7 @@ breath start --theme pomo --font ansiShadow
 |---|---|---|
 | `Enter` / `q` | Summary Screen | Exit session |
 | `s` | Summary Screen | Open full statistics dashboard |
+| `b` / `Backspace` / `←` | Summary Screen | Step back / rewind into the last round |
 | `y` / `n` | Confirmation Dialog | Confirm (`y`) or cancel (`n` / `Esc`) |
 | `q` / `Esc` | Statistics Dashboard | Close dashboard |
 
